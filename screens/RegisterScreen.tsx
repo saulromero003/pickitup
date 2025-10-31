@@ -154,7 +154,6 @@ function SelectField({
   );
 }
 
-
 export default function RegisterScreen() {
   const navigation = useNavigation();
 
@@ -190,6 +189,7 @@ export default function RegisterScreen() {
   const estadosOptions = pais === 'México' ? estadosMX : [];
 
   const onSubmit = async () => {
+    // Validaciones básicas
     if (!email || !password) return Alert.alert('Campos faltantes', 'Correo y contraseña son obligatorios.');
     if (password.length < 6) return Alert.alert('Contraseña débil', 'La contraseña debe tener al menos 6 caracteres.');
     if (password !== confirm) return Alert.alert('No coincide', 'La confirmación de contraseña no coincide.');
@@ -197,24 +197,60 @@ export default function RegisterScreen() {
 
     setLoading(true);
     try {
-      const { error } = await supabase.auth.signUp({
-        email,
+      // Normaliza campos
+      const emailNorm = email.trim().toLowerCase();
+      const nombreNorm = nombre.trim();
+      const apellidoPNorm = apellidoP.trim();
+      const apellidoMNorm = apellidoM.trim();
+      const ciudadNorm = ciudad.trim();
+      const coloniaNorm = colonia.trim();
+      const calleNorm = calle.trim();
+
+      // 1) Sign Up
+      const { data, error } = await supabase.auth.signUp({
+        email: emailNorm,
         password,
         options: {
           data: {
-            nombre,
-            apellido_paterno: apellidoP,
-            apellido_materno: apellidoM,
+            nombre: nombreNorm,
+            apellido_paterno: apellidoPNorm,
+            apellido_materno: apellidoMNorm,
             edad: edad ? Number(edad) : null,
             genero,
-            domicilio: { pais, estado, ciudad, colonia, calle },
+            domicilio: { pais, estado, ciudad: ciudadNorm, colonia: coloniaNorm, calle: calleNorm },
           },
+          // Si usas deep links para verificación:
+          // emailRedirectTo: 'pickitup://auth/callback',
         },
       });
       if (error) throw error;
 
-      Alert.alert('Registro exitoso', 'Revisa tu correo si se requiere confirmación.', [
-        { text: 'OK', onPress: () => navigation.goBack() },
+      const user = data.user;
+      if (!user) {
+        // Probablemente verificación por correo habilitada
+        Alert.alert(
+          'Registro exitoso',
+          'Te enviamos un correo para verificar tu cuenta. Ábrelo y vuelve a la app.'
+        );
+        return;
+      }
+
+      // 2) Upsert del perfil en public.profiles
+      const { error: upsertError } = await supabase.from('profiles').upsert({
+        id: user.id,
+        email: emailNorm,
+        nombre: nombreNorm,
+        apellido_paterno: apellidoPNorm,
+        apellido_materno: apellidoMNorm,
+        edad: edad ? Number(edad) : null,
+        genero,
+        domicilio: { pais, estado, ciudad: ciudadNorm, colonia: coloniaNorm, calle: calleNorm },
+      });
+
+      if (upsertError) throw upsertError;
+
+      Alert.alert('Registro exitoso', '¡Tu cuenta fue creada!', [
+        { text: 'OK', onPress: () => navigation.goBack() }, // o navega a Login/Home
       ]);
     } catch (e: any) {
       Alert.alert('Error al registrar', e?.message ?? 'Intenta de nuevo.');
@@ -225,147 +261,146 @@ export default function RegisterScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
-        <KeyboardAvoidingKeyboardWrapper>
-            <ScrollView
-                contentContainerStyle={styles.scroll}
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
+      <KeyboardAvoidingKeyboardWrapper>
+        <ScrollView
+          contentContainerStyle={styles.scroll}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* DATOS PERSONALES */}
+          <SectionTitle>Datos personales</SectionTitle>
+
+          <InputField
+            icon="person-outline"
+            placeholder="Nombre:"
+            value={nombre}
+            onChangeText={setNombre}
+            autoCapitalize="words"
+          />
+          <InputField
+            icon="person-outline"
+            placeholder="Apellido paterno:"
+            value={apellidoP}
+            onChangeText={setApellidoP}
+            autoCapitalize="words"
+          />
+          <InputField
+            icon="person-outline"
+            placeholder="Apellido materno:"
+            value={apellidoM}
+            onChangeText={setApellidoM}
+            autoCapitalize="words"
+          />
+
+          {/* Edad: SELECT */}
+          <SelectField
+            icon="calendar-outline"
+            placeholder="Ingrese su edad:"
+            value={edad}
+            onSelect={setEdad}
+            options={edades}
+          />
+
+          {/* Género: radios sin selección por defecto */}
+          <Text style={styles.sectionMiniLabel}>Género:</Text>
+          <View style={styles.radioRow}>
+            <Radio value="masculino" label="Masculino" selected={genero === 'masculino'} onSelect={setGenero} />
+            <Radio value="femenino" label="Femenino" selected={genero === 'femenino'} onSelect={setGenero} />
+            <Radio value="otros" label="Otros" selected={genero === 'otros'} onSelect={setGenero} />
+          </View>
+
+          {/* DOMICILIO */}
+          <SectionTitle>Domicilio</SectionTitle>
+          <SelectField
+            icon="flag-outline"
+            placeholder="País:"
+            value={pais}
+            onSelect={(v) => {
+              setPais(v);
+              setEstado('');
+            }}
+            options={paises}
+          />
+          <SelectField
+            icon="map-outline"
+            placeholder="Estado:"
+            value={estado}
+            onSelect={setEstado}
+            options={estadosOptions}
+            disabled={pais !== 'México'}
+          />
+          <InputField
+            icon="business-outline"
+            placeholder="Ciudad:"
+            value={ciudad}
+            onChangeText={setCiudad}
+            autoCapitalize="words"
+          />
+          <InputField
+            icon="location-outline"
+            placeholder="Colonia:"
+            value={colonia}
+            onChangeText={setColonia}
+            autoCapitalize="words"
+          />
+          <InputField
+            icon="home-outline"
+            placeholder="Calle:"
+            value={calle}
+            onChangeText={setCalle}
+            autoCapitalize="words"
+          />
+
+          {/* SEGURIDAD */}
+          <SectionTitle>Seguridad</SectionTitle>
+          <InputField
+            icon="mail-outline"
+            placeholder="Correo:"
+            value={email}
+            onChangeText={(t) => setEmail(t.trim())}
+            keyboardType="email-address"
+          />
+          <InputField
+            icon="key-outline"
+            placeholder="Contraseña:"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+          />
+          <InputField
+            icon="key-outline"
+            placeholder="Confirmar contraseña:"
+            value={confirm}
+            onChangeText={setConfirm}
+            secureTextEntry
+          />
+
+          {/* BOTONES */}
+          <View style={styles.actionsRow}>
+            <TouchableOpacity
+              style={[styles.pillButton, styles.secondary]}
+              onPress={() => navigation.goBack()}
+              disabled={loading}
             >
-                {/* DATOS PERSONALES */}
-                <SectionTitle>Datos personales</SectionTitle>
+              <Text style={[styles.pillButtonText, styles.secondaryText]}>Regresar</Text>
+            </TouchableOpacity>
 
-                <InputField
-                icon="person-outline"
-                placeholder="Nombre:"
-                value={nombre}
-                onChangeText={setNombre}
-                autoCapitalize="words"
-                />
-                <InputField
-                icon="person-outline"
-                placeholder="Apellido paterno:"
-                value={apellidoP}
-                onChangeText={setApellidoP}
-                autoCapitalize="words"
-                />
-                <InputField
-                icon="person-outline"
-                placeholder="Apellido materno:"
-                value={apellidoM}
-                onChangeText={setApellidoM}
-                autoCapitalize="words"
-                />
-
-                {/* Edad: SELECT */}
-                <SelectField
-                icon="calendar-outline"
-                placeholder="Ingrese su edad:"
-                value={edad}
-                onSelect={setEdad}
-                options={edades}
-                />
-
-                {/* Género: radios sin selección por defecto */}
-                <Text style={styles.sectionMiniLabel}>Género:</Text>
-                <View style={styles.radioRow}>
-                <Radio value="masculino" label="Masculino" selected={genero === 'masculino'} onSelect={setGenero} />
-                <Radio value="femenino" label="Femenino" selected={genero === 'femenino'} onSelect={setGenero} />
-                <Radio value="otros" label="Otros" selected={genero === 'otros'} onSelect={setGenero} />
-                </View>
-
-                {/* DOMICILIO */}
-                <SectionTitle>Domicilio</SectionTitle>
-                <SelectField
-                icon="flag-outline"
-                placeholder="País:"
-                value={pais}
-                onSelect={(v) => {
-                    setPais(v);
-                    setEstado('');
-                }}
-                options={paises}
-                />
-                <SelectField
-                icon="map-outline"
-                placeholder="Estado:"
-                value={estado}
-                onSelect={setEstado}
-                options={estadosOptions}
-                disabled={pais !== 'México'}
-                />
-                <InputField
-                icon="business-outline"
-                placeholder="Ciudad:"
-                value={ciudad}
-                onChangeText={setCiudad}
-                autoCapitalize="words"
-                />
-                <InputField
-                icon="location-outline"
-                placeholder="Colonia:"
-                value={colonia}
-                onChangeText={setColonia}
-                autoCapitalize="words"
-                />
-                <InputField
-                icon="home-outline"
-                placeholder="Calle:"
-                value={calle}
-                onChangeText={setCalle}
-                autoCapitalize="words"
-                />
-
-                {/* SEGURIDAD */}
-                <SectionTitle>Seguridad</SectionTitle>
-                <InputField
-                icon="mail-outline"
-                placeholder="Correo:"
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                />
-                <InputField
-                icon="key-outline"
-                placeholder="Contraseña:"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry
-                />
-                <InputField
-                icon="key-outline"
-                placeholder="Confirmar contraseña:"
-                value={confirm}
-                onChangeText={setConfirm}
-                secureTextEntry
-                />
-
-                {/* BOTONES */}
-                <View style={styles.actionsRow}>
-                    <TouchableOpacity
-                        style={[styles.pillButton, styles.secondary]}
-                        onPress={() => navigation.goBack()}
-                        disabled={loading}
-                    >
-                        <Text style={[styles.pillButtonText, styles.secondaryText]}>Regresar</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                        style={[styles.pillButton, styles.primary]}
-                        onPress={onSubmit}
-                        disabled={loading}
-                    >
-                        <Text style={styles.pillButtonText}>{loading ? 'Registrando…' : 'Registrarse'}</Text>
-                    </TouchableOpacity>
-                </View>
-            </ScrollView>
-        </KeyboardAvoidingKeyboardWrapper>
+            <TouchableOpacity
+              style={[styles.pillButton, styles.primary]}
+              onPress={onSubmit}
+              disabled={loading}
+            >
+              <Text style={styles.pillButtonText}>{loading ? 'Registrando…' : 'Registrarse'}</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingKeyboardWrapper>
     </SafeAreaView>
-
   );
 }
 
 const styles = StyleSheet.create({
-    scroll: { padding: 16, paddingBottom: 28, paddingTop: 16 },
+  scroll: { padding: 16, paddingBottom: 28, paddingTop: 16 },
 
   sectionTitle: {
     alignSelf: 'flex-start',
