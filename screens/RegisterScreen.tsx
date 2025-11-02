@@ -210,18 +210,6 @@ export default function RegisterScreen() {
       const { data, error } = await supabase.auth.signUp({
         email: emailNorm,
         password,
-        options: {
-          data: {
-            nombre: nombreNorm,
-            apellido_paterno: apellidoPNorm,
-            apellido_materno: apellidoMNorm,
-            edad: edad ? Number(edad) : null,
-            genero,
-            domicilio: { pais, estado, ciudad: ciudadNorm, colonia: coloniaNorm, calle: calleNorm },
-          },
-          // Si usas deep links para verificación:
-          // emailRedirectTo: 'pickitup://auth/callback',
-        },
       });
       if (error) throw error;
 
@@ -235,16 +223,16 @@ export default function RegisterScreen() {
         return;
       }
 
-      // 2) Upsert del perfil en public.profiles
-      const { error: upsertError } = await supabase.from('profiles').upsert({
-        id: user.id,
-        email: emailNorm,
-        nombre: nombreNorm,
-        apellido_paterno: apellidoPNorm,
-        apellido_materno: apellidoMNorm,
-        edad: edad ? Number(edad) : null,
-        genero,
-        domicilio: { pais, estado, ciudad: ciudadNorm, colonia: coloniaNorm, calle: calleNorm },
+      // 2) Upsert del perfil en public.person
+      const { error: upsertError } = await supabase.from('person').upsert({
+          user_id: user.id, 
+
+          name: nombreNorm,             
+          l_name_pat: apellidoPNorm,    
+          l_name_mat: apellidoMNorm,    
+          gender: genero === 'masculino' ? 'M' : 
+             genero === 'femenino' ? 'F' : 
+             genero === 'otros' ? 'X' : null,               
       });
 
       if (upsertError) throw upsertError;
