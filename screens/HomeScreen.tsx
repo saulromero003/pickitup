@@ -30,6 +30,15 @@ export default function HomeScreen() {
     });
   }, []);
 
+  const displayName = useMemo(() => {
+    return (
+      user?.user_metadata?.nombre ||
+      user?.user_metadata?.full_name ||
+      user?.email ||
+      'Usuario'
+    );
+  }, [user]);
+
   const initials = useMemo(() => {
     const name =
       user?.user_metadata?.nombre ||
@@ -91,6 +100,11 @@ export default function HomeScreen() {
             )}
           </View>
 
+          {/* Nombre del usuario */}
+          <Text style={styles.displayName} numberOfLines={1}>
+            {displayName}
+          </Text>
+
           <View style={styles.actions}>
             <TouchableOpacity
               style={[styles.btn, styles.btnPrimary]}
@@ -135,7 +149,7 @@ export default function HomeScreen() {
             style={styles.sidebarItem}
             onPress={() => {
               setSidebarOpen(false);
-                navigation.navigate('Profile');
+              navigation.navigate('Profile');
             }}
           >
             <Ionicons name="person-circle" size={22} color="#0A3251" />
@@ -168,7 +182,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#E6E9EE',
     backgroundColor: '#FFFFFF',
   },
-  logo: { width: 130, height: 32 }, // ← Aumentado el tamaño del logo
+  logo: { width: 130, height: 32 },
 
   /* Map placeholder */
   mapPlaceholder: {
@@ -189,7 +203,7 @@ const styles = StyleSheet.create({
   },
   card: {
     width: CARD_WIDTH,
-    paddingTop: 48,
+    paddingTop: 56, // un poco más para dar aire al nombre
     paddingHorizontal: 16,
     paddingBottom: 16,
     borderRadius: 20,
@@ -224,6 +238,15 @@ const styles = StyleSheet.create({
   },
   avatarText: { fontWeight: '700', color: '#0A3251' },
 
+  displayName: {
+    marginTop: 8,
+    marginBottom: 4,
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0A3251',
+    maxWidth: CARD_WIDTH - 32,
+  },
+
   actions: { width: '100%', gap: 10 },
   btn: {
     height: 44,
@@ -256,7 +279,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: 280,
     backgroundColor: '#FFFFFF',
-    paddingTop: 60, // ← Más espacio arriba para evitar choques en iPhone
+    paddingTop: 60,
     paddingHorizontal: 16,
     borderLeftWidth: StyleSheet.hairlineWidth,
     borderLeftColor: '#E6E9EE',
