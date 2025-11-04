@@ -135,7 +135,7 @@ export default function HomeScreen() {
             style={styles.sidebarItem}
             onPress={() => {
               setSidebarOpen(false);
-              Alert.alert('Perfil', 'Pantalla de perfil pendiente');
+                navigation.navigate('Profile');
             }}
           >
             <Ionicons name="person-circle" size={22} color="#0A3251" />

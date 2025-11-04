@@ -10,6 +10,7 @@ import { RootStackParamList } from './types/navigation';
 import LoginScreen from './screens/LoginScreen';
 import RegisterScreen from './screens/RegisterScreen';
 import HomeScreen from './screens/HomeScreen';
+import ProfileScreen from './screens/ProfileScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -17,10 +18,15 @@ export default function App() {
   const [session, setSession] = useState<Session | null>(null);
 
   useEffect(() => {
+    // Obtener sesión inicial
     supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
+
+    // Escuchar cambios de autenticación
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
     });
+
+    // Cleanup
     return () => {
       subscription.unsubscribe();
     };
@@ -36,6 +42,7 @@ export default function App() {
       ) : (
         <Stack.Navigator initialRouteName="Home" screenOptions={{ headerShown: false }}>
           <Stack.Screen name="Home" component={HomeScreen} />
+          <Stack.Screen name="Profile" component={ProfileScreen} />
         </Stack.Navigator>
       )}
     </NavigationContainer>
