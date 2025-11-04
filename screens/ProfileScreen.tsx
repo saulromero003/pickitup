@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -22,7 +23,6 @@ type Nav = NativeStackNavigationProp<RootStackParamList, 'Profile'>;
 export default function ProfileScreen() {
   const navigation = useNavigation<Nav>();
 
-
   const [name, setName] = useState('');
   const [lNamePat, setLNamePat] = useState('');
   const [lNameMat, setLNameMat] = useState('');
@@ -30,11 +30,10 @@ export default function ProfileScreen() {
   const [workProf, setWorkProf] = useState('');
   const [profilePic, setProfilePic] = useState<string | null>(null);
 
-
   const [country, setCountry] = useState('');
   const [stateMx, setStateMx] = useState('');
   const [city, setCity] = useState('');
-  const [neighborhood, setNeighborhood] = useState(''); // colonia
+  const [neighborhood, setNeighborhood] = useState('');
   const [street, setStreet] = useState('');
 
   const [currentPassword, setCurrentPassword] = useState('');
@@ -54,8 +53,27 @@ export default function ProfileScreen() {
   };
 
   const onPickAvatar = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert(
+        'Permiso requerido',
+        'Se necesita permiso para acceder a la galería de fotos.'
+      );
+      return;
+    }
 
-    Alert.alert('Cambiar foto', 'Integrar selector de imagen más adelante.');
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+
+    if (!result.canceled) {
+      const uri = result.assets[0].uri;
+      setProfilePic(uri);
+      // Aquí luego se puede subir a Supabase Storage y guardar URL en profile_pic
+    }
   };
 
   const onSave = () => {
@@ -63,33 +81,14 @@ export default function ProfileScreen() {
       Alert.alert('Falta tu nombre', 'Por favor ingresa tu nombre.');
       return;
     }
-    if (newPassword || confirmPassword) {
-      if (!currentPassword) {
-        Alert.alert('Contraseña actual requerida', 'Para cambiar tu contraseña, ingresa la actual.');
-        return;
-      }
-      if (newPassword.length < 6) {
-        Alert.alert('Contraseña muy corta', 'La nueva contraseña debe tener al menos 6 caracteres.');
-        return;
-      }
-      if (newPassword !== confirmPassword) {
-        Alert.alert('No coincide', 'La confirmación no coincide con la nueva contraseña.');
-        return;
-      }
-    }
 
-    // Payloads listos para backend
     const personPayload = {
-      // Tabla: public.person
-      name: name.trim(),                  // person.name
-      l_name_pat: lNamePat.trim() || null, // person.l_name_pat
-      l_name_mat: lNameMat.trim() || null, // person.l_name_mat
-      birthdate: birthdate ? birthdate.toISOString().slice(0, 10) : null, // YYYY-MM-DD
-      profile_pic: profilePic,           // person.profile_pic (URL cuando exista)
-      work_prof: workProf.trim() || null,// person.work_prof
-      // Si luego geocodifican:
-      // latitude: number | null,
-      // longitude: number | null,
+      name: name.trim(),
+      l_name_pat: lNamePat.trim() || null,
+      l_name_mat: lNameMat.trim() || null,
+      birthdate: birthdate ? birthdate.toISOString().slice(0, 10) : null,
+      profile_pic: profilePic, // aquí se guardará el link una vez que suban la imagen al backend
+      work_prof: workProf.trim() || null,
     };
 
     const addressPayload = {
@@ -107,9 +106,8 @@ export default function ProfileScreen() {
         }
       : null;
 
-
     console.log({ personPayload, addressPayload, passwordPayload });
-    Alert.alert('Listo', 'Formulario validado. Backend puede conectar aquí. SINUHE Y KEVIN');
+    Alert.alert('Listo', 'Datos listos para guardar en backend ✅');
   };
 
   return (
@@ -123,6 +121,7 @@ export default function ProfileScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+        {/* Foto de perfil */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Foto de perfil</Text>
           <View style={styles.avatarRow}>
@@ -324,7 +323,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#FFFFFF' },
-
   header: {
     height: 56,
     paddingHorizontal: 12,
@@ -333,13 +331,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#E6E9EE',
-    backgroundColor: '#FFFFFF',
   },
   headerTitle: { color: '#0A3251', fontSize: 18, fontWeight: '700' },
   iconBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
-
   scroll: { padding: 16, gap: 14 },
-
   card: {
     backgroundColor: '#fff',
     borderRadius: 16,
@@ -352,10 +347,8 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   cardTitle: { color: '#0A3251', fontWeight: '700', marginBottom: 6 },
-
   field: { marginBottom: 10 },
   label: { color: '#5A6B7C', marginBottom: 6, fontSize: 13 },
-
   input: {
     height: 44,
     borderWidth: 1,
@@ -365,7 +358,6 @@ const styles = StyleSheet.create({
     color: '#0A3251',
     backgroundColor: '#F8FAFC',
   },
-
   inputButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -373,9 +365,8 @@ const styles = StyleSheet.create({
   },
   inputButtonText: { color: '#0A3251' },
   inputButtonPlaceholder: { color: '#8FA1B3' },
-
   avatarRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  avatarImg: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#EEE' },
+  avatarImg: { width: 64, height: 64, borderRadius: 32 },
   avatarFallback: {
     width: 64,
     height: 64,
@@ -384,7 +375,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#D7ECFF',
   },
-
   btn: {
     height: 44,
     borderRadius: 12,
@@ -403,7 +393,6 @@ const styles = StyleSheet.create({
   },
   btnTextSecondary: { color: '#0A3251' },
   btnText: { fontWeight: '700' },
-
   footer: {
     position: 'absolute',
     left: 0,
