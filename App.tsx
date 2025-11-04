@@ -17,15 +17,15 @@ export default function App() {
   const [session, setSession] = useState<Session | null>(null);
 
   useEffect(() => {
-    // sesión inicial
+    // Sesión inicial
     supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
 
-    // suscripción a cambios de auth
+    // Suscripción a cambios de auth
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
     });
 
-    // cleanup
+    // Cleanup
     return () => {
       subscription.unsubscribe();
     };
@@ -34,12 +34,18 @@ export default function App() {
   return (
     <NavigationContainer>
       {!session ? (
-        <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Navigator
+          initialRouteName="Login"
+          screenOptions={{ headerShown: false }}
+        >
           <Stack.Screen name="Login" component={LoginScreen} />
           <Stack.Screen name="Register" component={RegisterScreen} />
         </Stack.Navigator>
       ) : (
-        <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Navigator
+          initialRouteName="Home"
+          screenOptions={{ headerShown: false }}
+        >
           <Stack.Screen name="Home" component={HomeScreen} />
         </Stack.Navigator>
       )}
@@ -52,7 +58,7 @@ function HomeScreen() {
   const [user, setUser] = useState<any>(null);
 
   useEffect(() => {
-    const session = supabase.auth.getSession().then(({ data }) => {
+    supabase.auth.getSession().then(({ data }) => {
       setUser(data.session?.user ?? null);
     });
   }, []);
@@ -81,7 +87,6 @@ function HomeScreen() {
     </View>
   );
 }
-
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },

@@ -15,9 +15,16 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
-import { supabase } from '../lib/supabase';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 
+import { supabase } from '../lib/supabase';
+import { RootStackParamList } from '../types/navigation';
+
+type Nav = NativeStackNavigationProp<RootStackParamList>;
 type Gender = 'masculino' | 'femenino' | 'otros' | null;
+
+/* ---------- UI helpers ---------- */
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
@@ -92,6 +99,7 @@ function InputField({
   );
 }
 
+/* Select simple en modal (para país/estado) */
 function SelectField({
   icon,
   placeholder,
@@ -154,19 +162,91 @@ function SelectField({
   );
 }
 
+/* Fecha de nacimiento con DateTimePicker */
+function BirthdateField({
+  value,
+  onChange,
+}: {
+  value: Date | null;
+  onChange: (d: Date) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  const minDate = new Date(1900, 0, 1);
+  const maxDate = new Date(); // hoy
+
+  const display = value
+    ? new Intl.DateTimeFormat('es-MX', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(value)
+    : 'Fecha de nacimiento:';
+
+  const onChangePicker = (event: DateTimePickerEvent, selected?: Date) => {
+    if (Platform.OS === 'android') setOpen(false);
+    if (selected) onChange(selected);
+  };
+
+  return (
+    <>
+      <TouchableOpacity
+        activeOpacity={0.9}
+        style={styles.inputContainer}
+        onPress={() => setOpen(true)}
+      >
+        <Ionicons name="calendar-outline" size={20} color="#0A3251" style={styles.icon} />
+        <Text style={[styles.input, { paddingVertical: 2, color: value ? '#0A3251' : '#0A3251AA' }]}>
+          {display}
+        </Text>
+        <Ionicons name="chevron-down" size={18} color="#0A3251" style={{ opacity: 0.7 }} />
+      </TouchableOpacity>
+
+      {open && (
+        Platform.OS === 'ios' ? (
+          <Modal visible transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+            <View style={styles.modalBackdrop}>
+              <View style={styles.modalCard}>
+                <Text style={styles.modalTitle}>Selecciona tu fecha</Text>
+                <DateTimePicker
+                  mode="date"
+                  value={value ?? new Date(2000, 0, 1)}
+                  onChange={onChangePicker}
+                  maximumDate={maxDate}
+                  minimumDate={minDate}
+                  display="spinner"
+                />
+                <TouchableOpacity style={styles.modalClose} onPress={() => setOpen(false)}>
+                  <Text style={styles.modalCloseText}>Listo</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Modal>
+        ) : (
+          <DateTimePicker
+            mode="date"
+            value={value ?? new Date(2000, 0, 1)}
+            onChange={onChangePicker}
+            maximumDate={maxDate}
+            minimumDate={minDate}
+          />
+        )
+      )}
+    </>
+  );
+}
+
+/* ---------- Pantalla ---------- */
+
 export default function RegisterScreen() {
-  const navigation = useNavigation();
+  const navigation = useNavigation<Nav>();
 
   // Datos personales
   const [nombre, setNombre] = useState('');
   const [apellidoP, setApellidoP] = useState('');
   const [apellidoM, setApellidoM] = useState('');
-  const [edad, setEdad] = useState<string>(''); // SELECT
+  const [birthdate, setBirthdate] = useState<Date | null>(null);
   const [genero, setGenero] = useState<Gender>(null); // sin selección
 
   // Domicilio
-  const [pais, setPais] = useState<string>('');   // SELECT
-  const [estado, setEstado] = useState<string>(''); // SELECT
+  const [pais, setPais] = useState<string>('');
+  const [estado, setEstado] = useState<string>('');
   const [ciudad, setCiudad] = useState('');
   const [colonia, setColonia] = useState('');
   const [calle, setCalle] = useState('');
@@ -178,7 +258,6 @@ export default function RegisterScreen() {
   const [loading, setLoading] = useState(false);
 
   // Opciones
-  const edades = useMemo(() => Array.from({ length: 83 }, (_, i) => `${i + 18}`), []); // 18..100
   const paises = ['México', 'Estados Unidos', 'Canadá'];
   const estadosMX = [
     'Aguascalientes','Baja California','Baja California Sur','Campeche','Chiapas','Chihuahua','Ciudad de México',
@@ -188,9 +267,21 @@ export default function RegisterScreen() {
   ];
   const estadosOptions = pais === 'México' ? estadosMX : [];
 
+  /* Utils */
+  const isAdult = (d: Date) => {
+    const today = new Date();
+    let age = today.getFullYear() - d.getFullYear();
+    const m = today.getMonth() - d.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < d.getDate())) age--;
+    return age >= 18;
+  };
+  const toISODate = (d: Date) => d.toISOString().split('T')[0]; // YYYY-MM-DD
+
   const onSubmit = async () => {
     // Validaciones básicas
     if (!email || !password) return Alert.alert('Campos faltantes', 'Correo y contraseña son obligatorios.');
+    if (!birthdate) return Alert.alert('Campos faltantes', 'Selecciona tu fecha de nacimiento.');
+    if (!isAdult(birthdate)) return Alert.alert('Edad mínima', 'Debes ser mayor de 18 años.');
     if (password.length < 6) return Alert.alert('Contraseña débil', 'La contraseña debe tener al menos 6 caracteres.');
     if (password !== confirm) return Alert.alert('No coincide', 'La confirmación de contraseña no coincide.');
     if (!nombre || !apellidoP) return Alert.alert('Campos faltantes', 'Nombre y apellido paterno son obligatorios.');
@@ -215,35 +306,72 @@ export default function RegisterScreen() {
 
       const user = data.user;
       if (!user) {
-        // Probablemente verificación por correo habilitada
-        Alert.alert(
-          'Registro exitoso',
-          'Te enviamos un correo para verificar tu cuenta. Ábrelo y vuelve a la app.'
-        );
+        // Verificación por correo habilitada
+        Alert.alert('Registro exitoso', 'Te enviamos un correo para verificar tu cuenta. Ábrelo y vuelve a la app.', [
+          {
+            text: 'OK',
+            onPress: () => {
+              navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+            },
+          },
+        ]);
         return;
       }
 
-      // 2) Upsert del perfil en public.person
+      // 2) Upsert del perfil en public.person  ⬅️ birthdate agregado
       const { error: upsertError } = await supabase.from('person').upsert({
-          user_id: user.id, 
-
-          name: nombreNorm,             
-          l_name_pat: apellidoPNorm,    
-          l_name_mat: apellidoMNorm,    
-          gender: genero === 'masculino' ? 'M' : 
-             genero === 'femenino' ? 'F' : 
-             genero === 'otros' ? 'X' : null,               
+        user_id: user.id,
+        name: nombreNorm,
+        l_name_pat: apellidoPNorm,
+        l_name_mat: apellidoMNorm,
+        gender:
+          genero === 'masculino' ? 'M' :
+          genero === 'femenino' ? 'F' :
+          genero === 'otros' ? 'X' : null,
+        birthdate: toISODate(birthdate), // <-- guarda YYYY-MM-DD en columna DATE
+        // Si luego agregan columnas de domicilio:
+        // country: pais || null,
+        // state: estado || null,
+        // city: ciudadNorm || null,
+        // suburb: coloniaNorm || null,
+        // street: calleNorm || null,
       });
 
       if (upsertError) throw upsertError;
 
+      // 3) ¿Hay sesión activa? Decide navegación segura
+      const { data: sessionData } = await supabase.auth.getSession();
+      const hasSession = !!sessionData.session;
+
       Alert.alert('Registro exitoso', '¡Tu cuenta fue creada!', [
-        { text: 'OK', onPress: () => navigation.goBack() }, // o navega a Login/Home
+        {
+          text: 'OK',
+          onPress: () => {
+            if (hasSession) {
+              // Ya hay sesión -> ir a Home con reset para evitar errores de navegación
+              navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
+            } else {
+              // Sin sesión (p. ej., requiere verificar correo) -> Login
+              navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+            }
+          },
+        },
       ]);
     } catch (e: any) {
       Alert.alert('Error al registrar', e?.message ?? 'Intenta de nuevo.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleBack = async () => {
+    const { data } = await supabase.auth.getSession();
+    if (data.session) {
+      navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
+    } else if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
     }
   };
 
@@ -280,16 +408,10 @@ export default function RegisterScreen() {
             autoCapitalize="words"
           />
 
-          {/* Edad: SELECT */}
-          <SelectField
-            icon="calendar-outline"
-            placeholder="Ingrese su edad:"
-            value={edad}
-            onSelect={setEdad}
-            options={edades}
-          />
+          {/* Fecha de nacimiento */}
+          <BirthdateField value={birthdate} onChange={setBirthdate} />
 
-          {/* Género: radios sin selección por defecto */}
+          {/* Género */}
           <Text style={styles.sectionMiniLabel}>Género:</Text>
           <View style={styles.radioRow}>
             <Radio value="masculino" label="Masculino" selected={genero === 'masculino'} onSelect={setGenero} />
@@ -367,7 +489,7 @@ export default function RegisterScreen() {
           <View style={styles.actionsRow}>
             <TouchableOpacity
               style={[styles.pillButton, styles.secondary]}
-              onPress={() => navigation.goBack()}
+              onPress={handleBack}
               disabled={loading}
             >
               <Text style={[styles.pillButtonText, styles.secondaryText]}>Regresar</Text>
@@ -386,6 +508,8 @@ export default function RegisterScreen() {
     </SafeAreaView>
   );
 }
+
+/* ---------- estilos ---------- */
 
 const styles = StyleSheet.create({
   scroll: { padding: 16, paddingBottom: 28, paddingTop: 16 },

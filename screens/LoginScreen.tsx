@@ -23,7 +23,6 @@ export default function LoginScreen() {
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) {
-        // Mensajes comunes más amigables
         if (error.message.toLowerCase().includes('email not confirmed')) {
           Alert.alert('Verifica tu correo', 'Debes confirmar tu email antes de iniciar sesión.');
         } else {
@@ -31,7 +30,7 @@ export default function LoginScreen() {
         }
         return;
       }
-      // No navegues manualmente a Home: App.tsx cambia el stack al detectar la sesión
+      // No navegamos manualmente: App.tsx cambia el stack al detectar la sesión
     } catch (e: any) {
       Alert.alert('Error inesperado', e?.message ?? 'Intenta de nuevo.');
     } finally {
@@ -75,7 +74,7 @@ export default function LoginScreen() {
 
       <TouchableOpacity style={[styles.loginButton, loading && { opacity: 0.7 }]} onPress={onSignIn} disabled={loading}>
         {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.loginButtonText}>Iniciar sesión</Text>}
-    </TouchableOpacity>
+      </TouchableOpacity>
 
       <Text style={styles.registerText}>Si no tienes cuenta regístrate</Text>
       <TouchableOpacity onPress={() => navigation.navigate('Register')} disabled={loading}>
