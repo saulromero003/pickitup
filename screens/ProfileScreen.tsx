@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -17,12 +17,13 @@ import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/dat
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types/navigation';
+import { supabase } from '../lib/supabase';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'Profile'>;
 
 export default function ProfileScreen() {
   const navigation = useNavigation<Nav>();
-
+  
   const [name, setName] = useState('');
   const [lNamePat, setLNamePat] = useState('');
   const [lNameMat, setLNameMat] = useState('');
@@ -41,6 +42,10 @@ export default function ProfileScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
 
   const [showDatePicker, setShowDatePicker] = useState(false);
+
+  useEffect(() => {
+    loadProfile();
+  }, []);
 
   const birthdateLabel = useMemo(() => {
     if (!birthdate) return 'Seleccionar fecha';
@@ -72,42 +77,113 @@ export default function ProfileScreen() {
     if (!result.canceled) {
       const uri = result.assets[0].uri;
       setProfilePic(uri);
-      // Aquí luego se puede subir a Supabase Storage y guardar URL en profile_pic
     }
   };
 
-  const onSave = () => {
+  async function loadProfile() {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const user = sessionData.session?.user ?? null;
+      if (!user) {
+        console.log('No hay usuario autenticado');
+        return;
+      }
+
+      console.log('User ID:', user.id); // Debug
+
+      const { data, error } = await supabase
+        .from('person')
+        .select('*')
+        .eq('user_id', user.id)
+        .limit(1)
+        .maybeSingle();
+
+      if (error) {
+        console.log('loadProfile error:', error.message);
+        return;
+      }
+
+      if (data) {
+        console.log('Datos cargados:', data); // Debug
+        setName(data.name ?? '');
+        setLNamePat(data.l_name_pat ?? '');
+        setLNameMat(data.l_name_mat ?? '');
+        setBirthdate(data.birthdate ? new Date(data.birthdate) : undefined);
+        setProfilePic(data.profile_pic ?? null);
+        setWorkProf(data.work_prof ?? '');
+
+        setCountry(data.country ?? '');
+        setStateMx(data.state ?? '');
+        setCity(data.city ?? '');
+        setNeighborhood(data.neighborhood ?? '');
+        setStreet(data.street ?? '');
+      } else {
+        console.log('No se encontró perfil para este usuario');
+      }
+    } catch (e: any) {
+      console.log('loadProfile exception:', e?.message ?? e);
+    }
+  }
+
+  const onSave = async () => {
     if (!name.trim()) {
       Alert.alert('Falta tu nombre', 'Por favor ingresa tu nombre.');
       return;
     }
 
-    const personPayload = {
-      name: name.trim(),
-      l_name_pat: lNamePat.trim() || null,
-      l_name_mat: lNameMat.trim() || null,
-      birthdate: birthdate ? birthdate.toISOString().slice(0, 10) : null,
-      profile_pic: profilePic, // aquí se guardará el link una vez que suban la imagen al backend
-      work_prof: workProf.trim() || null,
-    };
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const user = sessionData.session?.user ?? null;
+      
+      if (!user) {
+        Alert.alert('Error', 'No hay sesión activa.');
+        return;
+      }
 
-    const addressPayload = {
-      country: country.trim() || null,
-      state: stateMx.trim() || null,
-      city: city.trim() || null,
-      neighborhood: neighborhood.trim() || null,
-      street: street.trim() || null,
-    };
+      console.log('Guardando con user_id:', user.id); // Debug
 
-    const passwordPayload = newPassword
-      ? {
-          current_password: currentPassword,
-          new_password: newPassword,
-        }
-      : null;
+      // Formatear fecha
+      let formattedDate = null;
+      if (birthdate) {
+        const year = birthdate.getFullYear();
+        const month = String(birthdate.getMonth() + 1).padStart(2, '0');
+        const day = String(birthdate.getDate()).padStart(2, '0');
+        formattedDate = `${year}-${month}-${day}`;
+      }
 
-    console.log({ personPayload, addressPayload, passwordPayload });
-    Alert.alert('Listo', 'Datos listos para guardar en backend ✅');
+      const updateData = {
+        name: name.trim(),
+        l_name_pat: lNamePat.trim(),
+        l_name_mat: lNameMat.trim(),
+        birthdate: formattedDate,
+        profile_pic: profilePic,
+        work_prof: workProf.trim(),
+        //country: country.trim(),
+        //state: stateMx.trim(),
+        //city: city.trim(),
+        //neighborhood: neighborhood.trim(),
+        //street: street.trim(),
+      };
+
+      console.log('Datos a actualizar:', updateData); // Debug
+
+      const { error } = await supabase
+        .from('person')
+        .update(updateData)
+        .eq('user_id', user.id);
+
+      if (error) {
+        console.log('Error al actualizar:', error);
+        Alert.alert('Error', 'No se pudo guardar: ' + error.message);
+        return;
+      }
+
+      Alert.alert('Éxito', 'Perfil actualizado correctamente.');
+      
+    } catch (e: any) {
+      console.log('onSave exception:', e?.message ?? e);
+      Alert.alert('Error', 'Ocurrió un error al guardar.');
+    }
   };
 
   return (
@@ -121,7 +197,6 @@ export default function ProfileScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-        {/* Foto de perfil */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Foto de perfil</Text>
           <View style={styles.avatarRow}>
