@@ -74,10 +74,22 @@ export default function ProfileScreen() {
       quality: 0.8,
     });
 
-    if (!result.canceled) {
-      const uri = result.assets[0].uri;
-      setProfilePic(uri);
-    }
+
+    console.log('ImagePicker result:', result); // Debug
+    if (result.canceled || result.assets[0] === null || result.assets[0] === undefined ) return;
+
+    const arraybuffer = await fetch(result.assets[0].uri).then((res) => res.arrayBuffer())
+    const fileExt = result.assets[0].uri?.split('.').pop()?.toLowerCase() ?? 'jpeg'
+    const path = `${Date.now()}.${fileExt}`
+
+
+    const { data, error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(path, arraybuffer)
+    console.log('Upload result:', { data, uploadError }); // Debug
+    if (uploadError) throw uploadError
+    const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path)
+    setProfilePic(urlData.publicUrl)
   };
 
   async function loadProfile() {
@@ -158,12 +170,13 @@ export default function ProfileScreen() {
         birthdate: formattedDate,
         profile_pic: profilePic,
         work_prof: workProf.trim(),
-        //country: country.trim(),
-        //state: stateMx.trim(),
-        //city: city.trim(),
-        //neighborhood: neighborhood.trim(),
-        //street: street.trim(),
+        country: country.trim(),
+        state: stateMx.trim(),
+        city: city.trim(),
+        area: neighborhood.trim(),
+        street: street.trim(),
       };
+
 
       console.log('Datos a actualizar:', updateData); // Debug
 
@@ -173,9 +186,57 @@ export default function ProfileScreen() {
         .eq('user_id', user.id);
 
       if (error) {
-        console.log('Error al actualizar:', error);
-        Alert.alert('Error', 'No se pudo guardar: ' + error.message);
+        console.log('Error al actualizar información:', error);
+        Alert.alert('Error', 'No se pudo guardar la información: ' + error.message);
         return;
+      }
+
+      // Handle password change if any password field is filled
+      if (currentPassword || newPassword || confirmPassword) {
+        // Basic validations
+        if (!currentPassword) {
+          Alert.alert('Falta contraseña actual', 'Por favor ingresa tu contraseña actual para cambiarla.');
+          return;
+        }
+        if (!newPassword) {
+          Alert.alert('Falta nueva contraseña', 'Por favor ingresa la nueva contraseña.');
+          return;
+        }
+        if (newPassword !== confirmPassword) {
+          Alert.alert('Contraseñas no coinciden', 'La nueva contraseña y su confirmación no coinciden.');
+          return;
+        }
+        if (!user.email) {
+          Alert.alert('Error', 'No se pudo obtener el correo del usuario para verificar la contraseña.');
+          return;
+        }
+
+        // Re-authenticate to verify current password
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email: user.email,
+          password: currentPassword,
+        });
+
+        if (signInError) {
+          console.log('Re-authentication failed:', signInError);
+          Alert.alert('Error', 'La contraseña actual es incorrecta.');
+          return;
+        }
+
+        // Update password
+        const { error: updatePwdError } = await supabase.auth.updateUser({
+          password: newPassword,
+        });
+
+        if (updatePwdError) {
+          console.log('Password update error:', updatePwdError);
+          Alert.alert('Error', 'No se pudo actualizar la contraseña: ' + updatePwdError.message);
+          return;
+        }
+        // Clear password fields on success
+        setCurrentPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
       }
 
       Alert.alert('Éxito', 'Perfil actualizado correctamente.');

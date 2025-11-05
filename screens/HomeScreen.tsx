@@ -23,10 +23,12 @@ export default function HomeScreen() {
   const navigation = useNavigation<Nav>();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [user, setUser] = useState<any>(null);
+  const [profilePicUri, setProfilePicUri] = useState<string | null>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setUser(data.session?.user ?? null);
+      console.log("SESSION",data.session?.user.user_metadata);
     });
   }, []);
 
@@ -63,6 +65,30 @@ export default function HomeScreen() {
     }
   };
 
+  useEffect(() => {
+    async function fetchProfilePic() {
+      if (!user?.id) return;
+      try {
+        const { data: profile_pic_url, error } = await supabase
+          .from('person')
+          .select('profile_pic')
+          .eq('user_id', user.id)
+          .single();
+
+        if (error || !profile_pic_url) {
+          console.error('Error fetching user data from supabase to get the image:', error);
+          return;
+        }
+        setProfilePicUri(profile_pic_url.profile_pic);
+        console.log('Fetched profile pic URL:', profilePicUri);
+      } catch (error) {
+        console.error('Error fetching profile pic:', error);
+      }
+    }
+
+    fetchProfilePic();
+  }, [user?.id]);
+
   return (
     <SafeAreaView style={styles.safe}>
       {/* Header */}
@@ -91,13 +117,13 @@ export default function HomeScreen() {
       <View style={styles.bottomWrap} pointerEvents="box-none">
         <View style={styles.card}>
           <View style={styles.avatarWrap}>
-            {avatarUrl ? (
-              <Image source={{ uri: avatarUrl }} style={styles.avatarImg} />
-            ) : (
-              <View style={styles.avatarFallback}>
-                <Text style={styles.avatarText}>{initials}</Text>
-              </View>
-            )}
+            {profilePicUri ? (
+                          <Image source={{ uri: profilePicUri }} style={styles.avatarImg} />
+                        ) : (
+                          <View style={styles.avatarFallback}>
+                            <Ionicons name="person" size={36} color="#0A3251" />
+                          </View>
+                        )}
           </View>
 
           {/* Nombre del usuario */}

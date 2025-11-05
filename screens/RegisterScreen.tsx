@@ -284,15 +284,19 @@ export default function RegisterScreen() {
     if (!isAdult(birthdate)) return Alert.alert('Edad mínima', 'Debes ser mayor de 18 años.');
     if (password.length < 6) return Alert.alert('Contraseña débil', 'La contraseña debe tener al menos 6 caracteres.');
     if (password !== confirm) return Alert.alert('No coincide', 'La confirmación de contraseña no coincide.');
-    if (!nombre || !apellidoP) return Alert.alert('Campos faltantes', 'Nombre y apellido paterno son obligatorios.');
+    if (!nombre || !apellidoP || !apellidoM) return Alert.alert('Campos faltantes', 'Nombre y apellidos son obligatorios.');
+    if (!genero) return Alert.alert('Campos faltantes', 'Selecciona tu género.');
+    if (!pais || !estado || !ciudad || !colonia || !calle) return Alert.alert('Campos faltantes', 'Completa todos los campos de domicilio.');
 
     setLoading(true);
     try {
       // Normaliza campos
       const emailNorm = email.trim().toLowerCase();
+
       const nombreNorm = nombre.trim();
       const apellidoPNorm = apellidoP.trim();
       const apellidoMNorm = apellidoM.trim();
+
       const ciudadNorm = ciudad.trim();
       const coloniaNorm = colonia.trim();
       const calleNorm = calle.trim();
@@ -329,12 +333,11 @@ export default function RegisterScreen() {
           genero === 'femenino' ? 'F' :
           genero === 'otros' ? 'X' : null,
         birthdate: toISODate(birthdate), // <-- guarda YYYY-MM-DD en columna DATE
-        // Si luego agregan columnas de domicilio:
-        // country: pais || null,
-        // state: estado || null,
-        // city: ciudadNorm || null,
-        // suburb: coloniaNorm || null,
-        // street: calleNorm || null,
+        country: pais,
+        state: estado,
+        city: ciudadNorm,
+        area: coloniaNorm,
+        street: calleNorm,
       });
 
       if (upsertError) throw upsertError;
