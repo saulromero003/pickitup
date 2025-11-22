@@ -16,6 +16,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../types/navigation';
+import MapViewComponent from '../components/MapViewComponent';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'Home'>;
 
@@ -109,9 +110,7 @@ export default function HomeScreen() {
       </View>
 
       {/* Map placeholder */}
-      <View style={styles.mapPlaceholder}>
-        <Text style={styles.mapText}>Mapa (pendiente)</Text>
-      </View>
+      <MapViewComponent />
 
       {/* Bottom card */}
       <View style={styles.bottomWrap} pointerEvents="box-none">
