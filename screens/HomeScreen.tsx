@@ -8,11 +8,18 @@ import {
   Modal,
   Pressable,
   Alert,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
+  Keyboard,
+  TouchableWithoutFeedback,
+  ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import * as ImagePicker from 'expo-image-picker';
 
 import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../types/navigation';
@@ -26,10 +33,22 @@ export default function HomeScreen() {
   const [user, setUser] = useState<any>(null);
   const [profilePicUri, setProfilePicUri] = useState<string | null>(null);
 
+  // ===== HELP! modals state =====
+  const [helpModalVisible, setHelpModalVisible] = useState(false);
+  const [helpSearchingVisible, setHelpSearchingVisible] = useState(false);
+  const [helpMatchVisible, setHelpMatchVisible] = useState(false); // aviso final
+
+  const [helpDescription, setHelpDescription] = useState('');
+  const [helpAddress, setHelpAddress] = useState('');
+  const [helpPayment, setHelpPayment] = useState('');
+  const [helpImageUri, setHelpImageUri] = useState<string | null>(null);
+
+  const [helpCancelEnabled, setHelpCancelEnabled] = useState(true);
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setUser(data.session?.user ?? null);
-      console.log("SESSION",data.session?.user.user_metadata);
+      console.log('SESSION', data.session?.user?.user_metadata);
     });
   }, []);
 
@@ -66,6 +85,7 @@ export default function HomeScreen() {
     }
   };
 
+  // Traer foto de perfil desde tabla person.profile_pic
   useEffect(() => {
     async function fetchProfilePic() {
       if (!user?.id) return;
@@ -77,11 +97,14 @@ export default function HomeScreen() {
           .single();
 
         if (error || !profile_pic_url) {
-          console.error('Error fetching user data from supabase to get the image:', error);
+          console.error(
+            'Error fetching user data from supabase to get the image:',
+            error
+          );
           return;
         }
         setProfilePicUri(profile_pic_url.profile_pic);
-        console.log('Fetched profile pic URL:', profilePicUri);
+        console.log('Fetched profile pic URL:', profile_pic_url.profile_pic);
       } catch (error) {
         console.error('Error fetching profile pic:', error);
       }
@@ -89,6 +112,94 @@ export default function HomeScreen() {
 
     fetchProfilePic();
   }, [user?.id]);
+
+  // Ventana de 5 min para cancelar búsqueda
+  useEffect(() => {
+    if (helpSearchingVisible) {
+      setHelpCancelEnabled(true);
+      const timeout = setTimeout(() => {
+        setHelpCancelEnabled(false);
+      }, 5 * 60 * 1000); // 5 minutos
+      return () => clearTimeout(timeout);
+    }
+  }, [helpSearchingVisible]);
+
+  // Auto cierre del modal de "encontraste una mano" a los 7s
+  useEffect(() => {
+    if (helpMatchVisible) {
+      const timeout = setTimeout(() => {
+        setHelpMatchVisible(false);
+      }, 7000);
+      return () => clearTimeout(timeout);
+    }
+  }, [helpMatchVisible]);
+
+  /* ===== HELP! handlers ===== */
+
+  const openHelpModal = () => {
+    Keyboard.dismiss();
+    setHelpModalVisible(true);
+  };
+
+  const handlePickHelpImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert(
+        'Permiso requerido',
+        'Necesitamos permiso para acceder a tus fotos.'
+      );
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 0.8,
+    });
+
+    if (!result.canceled) {
+      setHelpImageUri(result.assets[0].uri);
+    }
+  };
+
+  const handleSubmitHelp = () => {
+    if (!helpDescription.trim()) {
+      Alert.alert('Describe el trabajito', 'Por favor describe lo que necesitas.');
+      return;
+    }
+    if (!helpAddress.trim()) {
+      Alert.alert('Domicilio requerido', 'Agrega un domicilio para el trabajito.');
+      return;
+    }
+    if (!helpPayment.trim()) {
+      Alert.alert('Falta el pago', 'Indica cuánto vas a pagar.');
+      return;
+    }
+
+    const payload = {
+      description: helpDescription.trim(),
+      address: helpAddress.trim(),
+      payment: helpPayment.trim(),
+      imageUri: helpImageUri,
+    };
+    console.log('HELP payload listo para backend:', payload);
+
+    setHelpModalVisible(false);
+    setHelpSearchingVisible(true);
+
+    // 🔔 SOLO PARA DISEÑO: simular que se encontró alguien a los 3s
+    // Quiten esto cuando Sinuhe/Kevin conecten el backend
+    setTimeout(() => {
+      setHelpMatchVisible(true);
+    }, 3000);
+  };
+
+  const handleCancelSearch = () => {
+    if (!helpCancelEnabled) return;
+    setHelpSearchingVisible(false);
+    // Aquí luego pueden informar al backend que se canceló la oferta
+  };
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -109,7 +220,7 @@ export default function HomeScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Map placeholder */}
+      {/* Mapa */}
       <MapViewComponent />
 
       {/* Bottom card */}
@@ -117,12 +228,16 @@ export default function HomeScreen() {
         <View style={styles.card}>
           <View style={styles.avatarWrap}>
             {profilePicUri ? (
-                          <Image source={{ uri: profilePicUri }} style={styles.avatarImg} />
-                        ) : (
-                          <View style={styles.avatarFallback}>
-                            <Ionicons name="person" size={36} color="#0A3251" />
-                          </View>
-                        )}
+              <Image source={{ uri: profilePicUri }} style={styles.avatarImg} />
+            ) : (
+              <View style={styles.avatarFallback}>
+                {avatarUrl ? (
+                  <Image source={{ uri: avatarUrl }} style={styles.avatarImg} />
+                ) : (
+                  <Ionicons name="person" size={36} color="#0A3251" />
+                )}
+              </View>
+            )}
           </View>
 
           {/* Nombre del usuario */}
@@ -133,7 +248,7 @@ export default function HomeScreen() {
           <View style={styles.actions}>
             <TouchableOpacity
               style={[styles.btn, styles.btnPrimary]}
-              onPress={() => Alert.alert('Help!', 'Acción pendiente de integrar')}
+              onPress={openHelpModal}
             >
               <Ionicons name="alert-circle" size={18} color="#fff" />
               <Text style={[styles.btnText, styles.btnTextPrimary]}>Help!</Text>
@@ -187,6 +302,160 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
       </Modal>
+
+      {/* MODAL 1: Crear trabajito */}
+      <Modal
+        visible={helpModalVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setHelpModalVisible(false)}
+      >
+        <Pressable style={styles.backdrop} onPress={() => setHelpModalVisible(false)} />
+        <KeyboardAvoidingView
+          style={styles.helpModalContainer}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+            <View style={styles.helpModalCard}>
+              <ScrollView
+                contentContainerStyle={styles.helpModalScroll}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+              >
+                <Text style={styles.helpModalTitle}>Crear trabajito</Text>
+                <Text style={styles.helpModalSubtitle}>
+                  Publica un pequeño trabajo para que alguien te ayude.
+                </Text>
+
+                <Text style={styles.helpLabel}>¿Qué necesitas?</Text>
+                <TextInput
+                  style={[styles.input, styles.helpTextarea]}
+                  placeholder='Ej. "Necesito a una persona que me ayude a pintar 4 paredes de mi casa"'
+                  placeholderTextColor="#8FA1B3"
+                  value={helpDescription}
+                  onChangeText={setHelpDescription}
+                  multiline
+                  textAlignVertical="top"
+                />
+
+                <Text style={styles.helpLabel}>Domicilio</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder='Ej. "Col. Centro, Morelia, Mich."'
+                  placeholderTextColor="#8FA1B3"
+                  value={helpAddress}
+                  onChangeText={setHelpAddress}
+                />
+
+                <Text style={styles.helpLabel}>Pago ofrecido</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="$300 MXN"
+                  placeholderTextColor="#8FA1B3"
+                  value={helpPayment}
+                  onChangeText={setHelpPayment}
+                  keyboardType="numeric"
+                />
+
+                <View style={styles.helpImageRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.helpLabel}>Imagen del trabajo (opcional)</Text>
+                    <TouchableOpacity
+                      style={[
+                        styles.btn,
+                        styles.btnSecondary,
+                        { justifyContent: 'flex-start' },
+                      ]}
+                      onPress={handlePickHelpImage}
+                    >
+                      <Ionicons name="image" size={18} color="#0A3251" />
+                      <Text style={[styles.btnText, styles.btnTextSecondary]}>
+                        {helpImageUri ? 'Cambiar imagen' : 'Subir imagen'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                  {helpImageUri && (
+                    <Image source={{ uri: helpImageUri }} style={styles.helpImagePreview} />
+                  )}
+                </View>
+              </ScrollView>
+
+              <TouchableOpacity
+                style={[styles.btn, styles.btnPrimary, styles.helpSubmitButton]}
+                onPress={handleSubmitHelp}
+              >
+                <Ionicons name="cloud-upload" size={18} color="#fff" />
+                <Text style={[styles.btnText, styles.btnTextPrimary]}>
+                  Subir trabajito
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* MINIMODAL 2: Barra "Buscando a personas interesadas" */}
+      <Modal
+        visible={helpSearchingVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setHelpSearchingVisible(false)}
+      >
+        <View style={styles.helpSearchingContainer}>
+          <View style={styles.helpSearchingBar}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.helpSearchingTitle}>
+                Buscando a personas interesadas
+              </Text>
+              <Text style={styles.helpSearchingAddress} numberOfLines={1}>
+                {helpAddress || 'Sin domicilio especificado'}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={[
+                styles.helpCancelButton,
+                !helpCancelEnabled && styles.helpCancelButtonDisabled,
+              ]}
+              disabled={!helpCancelEnabled}
+              onPress={handleCancelSearch}
+            >
+              <Text
+                style={[
+                  styles.helpCancelText,
+                  !helpCancelEnabled && styles.helpCancelTextDisabled,
+                ]}
+              >
+                Cancelar
+              </Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.helpSearchingHint}>
+            {helpCancelEnabled
+              ? 'Puedes cancelar la búsqueda durante los primeros 5 minutos.'
+              : 'El tiempo para cancelar ha terminado.'}
+          </Text>
+        </View>
+      </Modal>
+
+      {/* MODAL 3: Felicidades encontraste una mano */}
+      <Modal
+        visible={helpMatchVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setHelpMatchVisible(false)}
+      >
+        <View style={styles.helpMatchContainer}>
+          <View style={styles.helpMatchCard}>
+            <Ionicons name="hand-left" size={42} color="#0A3251" />
+            <Text style={styles.helpMatchTitle}>
+              Felicidades, encontraste una mano
+            </Text>
+            <Text style={styles.helpMatchSubtitle}>
+              Te contactaremos con la persona interesada en tu trabajito.
+            </Text>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -209,15 +478,6 @@ const styles = StyleSheet.create({
   },
   logo: { width: 130, height: 32 },
 
-  /* Map placeholder */
-  mapPlaceholder: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  mapText: { color: '#9AA4B2' },
-
   /* Bottom card */
   bottomWrap: {
     position: 'absolute',
@@ -228,7 +488,7 @@ const styles = StyleSheet.create({
   },
   card: {
     width: CARD_WIDTH,
-    paddingTop: 56, // un poco más para dar aire al nombre
+    paddingTop: 56,
     paddingHorizontal: 16,
     paddingBottom: 16,
     borderRadius: 20,
@@ -326,4 +586,155 @@ const styles = StyleSheet.create({
     borderBottomColor: '#EDF1F6',
   },
   sidebarItemText: { fontSize: 16, color: '#0A3251' },
+
+  /* HELP! modal 1 */
+  helpModalContainer: {
+    flex: 1,
+    paddingHorizontal: 16,
+    justifyContent: 'center',
+  },
+  helpModalCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 16,
+    paddingBottom: 16,
+    maxHeight: '80%', // ← limita el alto del modal
+  },
+  helpModalScroll: {
+    paddingBottom: 8,
+  },
+  helpModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#0A3251',
+  },
+  helpModalSubtitle: {
+    fontSize: 13,
+    color: '#6B7A8C',
+    marginBottom: 4,
+  },
+  helpLabel: {
+    fontSize: 13,
+    color: '#5A6B7C',
+    marginBottom: 4,
+    marginTop: 6,
+  },
+  input: {
+    height: 44,
+    borderWidth: 1,
+    borderColor: '#C7D1DF',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    color: '#0A3251',
+    backgroundColor: '#F8FAFC',
+  },
+  helpTextarea: {
+    minHeight: 80,
+    paddingTop: 8,
+  },
+  helpImageRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+    gap: 10,
+  },
+  helpImagePreview: {
+    width: 52,
+    height: 52,
+    borderRadius: 10,
+    backgroundColor: '#E1E8F0',
+  },
+  helpSubmitButton: {
+    marginTop: 10,
+    width: '100%', // ← botón ocupa ancho del modal, nunca se sale
+  },
+
+  /* HELP! minimodal 2 */
+  helpSearchingContainer: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    padding: 16,
+  },
+  helpSearchingBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: -2 },
+    elevation: 8,
+  },
+  helpSearchingTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0A3251',
+  },
+  helpSearchingAddress: {
+    fontSize: 12,
+    color: '#6B7A8C',
+    marginTop: 2,
+  },
+  helpCancelButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#0A3251',
+    marginLeft: 10,
+  },
+  helpCancelButtonDisabled: {
+    borderColor: '#C7D1DF',
+    backgroundColor: '#F2F5F8',
+  },
+  helpCancelText: {
+    fontSize: 13,
+    color: '#0A3251',
+    fontWeight: '600',
+  },
+  helpCancelTextDisabled: {
+    color: '#9AA4B2',
+  },
+  helpSearchingHint: {
+    fontSize: 11,
+    color: '#6B7A8C',
+    marginTop: 6,
+    textAlign: 'center',
+  },
+
+  /* HELP! modal 3 */
+  helpMatchContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+  },
+  helpMatchCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 18,
+    alignItems: 'center',
+    gap: 8,
+    shadowColor: '#000',
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 12,
+  },
+  helpMatchTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#0A3251',
+    textAlign: 'center',
+  },
+  helpMatchSubtitle: {
+    fontSize: 13,
+    color: '#6B7A8C',
+    textAlign: 'center',
+  },
 });
