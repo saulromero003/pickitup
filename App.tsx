@@ -11,6 +11,7 @@ import LoginScreen from './screens/LoginScreen';
 import RegisterScreen from './screens/RegisterScreen';
 import HomeScreen from './screens/HomeScreen';
 import ProfileScreen from './screens/ProfileScreen';
+import JobsScreen from './screens/JobsScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -43,6 +44,7 @@ export default function App() {
         <Stack.Navigator initialRouteName="Home" screenOptions={{ headerShown: false }}>
           <Stack.Screen name="Home" component={HomeScreen} />
           <Stack.Screen name="Profile" component={ProfileScreen} />
+          <Stack.Screen name="Jobs" component={JobsScreen} />
         </Stack.Navigator>
       )}
     </NavigationContainer>

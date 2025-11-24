@@ -256,9 +256,7 @@ export default function HomeScreen() {
 
             <TouchableOpacity
               style={[styles.btn, styles.btnSecondary]}
-              onPress={() =>
-                Alert.alert('Trabajemos', 'Acción pendiente de integrar')
-              }
+              onPress={() => navigation.navigate('Jobs')}
             >
               <Ionicons name="briefcase" size={18} color="#0A3251" />
               <Text style={[styles.btnText, styles.btnTextSecondary]}>
