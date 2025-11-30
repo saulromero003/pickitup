@@ -43,6 +43,8 @@ export default function HomeScreen() {
   const [helpImageUri, setHelpImageUri] = useState<string | null>(null);
 
   const [helpCancelEnabled, setHelpCancelEnabled] = useState(true);
+  const [helpTitle, setHelpTitle] = useState('');
+
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -177,6 +179,7 @@ export default function HomeScreen() {
     }
 
     const payload = {
+      title: helpTitle.trim(),
       description: helpDescription.trim(),
       address: helpAddress.trim(),
       payment: helpPayment.trim(),
@@ -341,6 +344,15 @@ export default function HomeScreen() {
                 onChangeText={setHelpDescription}
                 multiline
                 textAlignVertical="top"
+              />
+
+              <Text style={styles.helpLabel}>Nombre del trabajito</Text>
+              <TextInput
+                style={styles.input}
+                placeholder='Ej. "Pintar cuarto"'
+                placeholderTextColor="#8FA1B3"
+                value={helpTitle}
+                onChangeText={setHelpTitle}
               />
 
               <Text style={styles.helpLabel}>Domicilio</Text>
