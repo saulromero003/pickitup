@@ -12,7 +12,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   Keyboard,
-  TouchableWithoutFeedback,
   ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -44,6 +43,8 @@ export default function HomeScreen() {
   const [helpImageUri, setHelpImageUri] = useState<string | null>(null);
 
   const [helpCancelEnabled, setHelpCancelEnabled] = useState(true);
+  const [helpTitle, setHelpTitle] = useState('');
+
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -203,7 +204,7 @@ export default function HomeScreen() {
     const paymentNumber = parseFloat(helpPayment.replace(/[^0-9.]/g, ''));
     
     const serviceData = {
-      name: helpAddress,
+      name: helpTitle.trim(),
       description: helpDescription,
       proposed_price: paymentNumber,
       photos: helpImageUri,
@@ -211,7 +212,7 @@ export default function HomeScreen() {
       longitude: null,
       datetime: new Date().toISOString(),
       person_id: personData.id, // ✅ Usar el ID entero de la tabla person
-    };
+    }
 
     const { data, error } = await supabase
       .from('service_request')
@@ -349,89 +350,106 @@ export default function HomeScreen() {
         transparent
         onRequestClose={() => setHelpModalVisible(false)}
       >
-        <Pressable style={styles.backdrop} onPress={() => setHelpModalVisible(false)} />
         <KeyboardAvoidingView
           style={styles.helpModalContainer}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-            <View style={styles.helpModalCard}>
-              <ScrollView
-                contentContainerStyle={styles.helpModalScroll}
-                keyboardShouldPersistTaps="handled"
-                showsVerticalScrollIndicator={false}
-              >
-                <Text style={styles.helpModalTitle}>Crear trabajito</Text>
-                <Text style={styles.helpModalSubtitle}>
-                  Publica un pequeño trabajo para que alguien te ayude.
-                </Text>
+          {/* Fondo oscuro clickeable */}
+          <Pressable
+            style={styles.backdrop}
+            onPress={() => {
+              Keyboard.dismiss();
+              setHelpModalVisible(false);
+            }}
+          />
 
-                <Text style={styles.helpLabel}>¿Qué necesitas?</Text>
-                <TextInput
-                  style={[styles.input, styles.helpTextarea]}
-                  placeholder='Ej. "Necesito a una persona que me ayude a pintar 4 paredes de mi casa"'
-                  placeholderTextColor="#8FA1B3"
-                  value={helpDescription}
-                  onChangeText={setHelpDescription}
-                  multiline
-                  textAlignVertical="top"
-                />
+          {/* Tarjeta del formulario */}
+          <View style={styles.helpModalCard}>
+            <ScrollView
+              contentContainerStyle={styles.helpModalScroll}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              <Text style={styles.helpModalTitle}>Crear trabajito</Text>
+              <Text style={styles.helpModalSubtitle}>
+                Publica un pequeño trabajo para que alguien te ayude.
+              </Text>
 
-                <Text style={styles.helpLabel}>Domicilio</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder='Ej. "Col. Centro, Morelia, Mich."'
-                  placeholderTextColor="#8FA1B3"
-                  value={helpAddress}
-                  onChangeText={setHelpAddress}
-                />
+              <Text style={styles.helpLabel}>¿Qué necesitas?</Text>
+              <TextInput
+                style={[styles.input, styles.helpTextarea]}
+                placeholder='Ej. "Necesito a una persona que me ayude a pintar 4 paredes de mi casa"'
+                placeholderTextColor="#8FA1B3"
+                value={helpDescription}
+                onChangeText={setHelpDescription}
+                multiline
+                textAlignVertical="top"
+              />
 
-                <Text style={styles.helpLabel}>Pago ofrecido</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="$300 MXN"
-                  placeholderTextColor="#8FA1B3"
-                  value={helpPayment}
-                  onChangeText={setHelpPayment}
-                  keyboardType="numeric"
-                />
+              <Text style={styles.helpLabel}>Nombre del trabajito</Text>
+              <TextInput
+                style={styles.input}
+                placeholder='Ej. "Pintar cuarto"'
+                placeholderTextColor="#8FA1B3"
+                value={helpTitle}
+                onChangeText={setHelpTitle}
+              />
 
-                <View style={styles.helpImageRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.helpLabel}>Imagen del trabajo (opcional)</Text>
-                    <TouchableOpacity
-                      style={[
-                        styles.btn,
-                        styles.btnSecondary,
-                        { justifyContent: 'flex-start' },
-                      ]}
-                      onPress={handlePickHelpImage}
-                    >
-                      <Ionicons name="image" size={18} color="#0A3251" />
-                      <Text style={[styles.btnText, styles.btnTextSecondary]}>
-                        {helpImageUri ? 'Cambiar imagen' : 'Subir imagen'}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                  {helpImageUri && (
-                    <Image source={{ uri: helpImageUri }} style={styles.helpImagePreview} />
-                  )}
+              <Text style={styles.helpLabel}>Domicilio</Text>
+              <TextInput
+                style={styles.input}
+                placeholder='Ej. "Col. Centro, Morelia, Mich."'
+                placeholderTextColor="#8FA1B3"
+                value={helpAddress}
+                onChangeText={setHelpAddress}
+              />
+
+              <Text style={styles.helpLabel}>Pago ofrecido</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="$300 MXN"
+                placeholderTextColor="#8FA1B3"
+                value={helpPayment}
+                onChangeText={setHelpPayment}
+                keyboardType="numeric"
+              />
+
+              <View style={styles.helpImageRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.helpLabel}>Imagen del trabajo (opcional)</Text>
+                  <TouchableOpacity
+                    style={[
+                      styles.btn,
+                      styles.btnSecondary,
+                      { justifyContent: 'flex-start' },
+                    ]}
+                    onPress={handlePickHelpImage}
+                  >
+                    <Ionicons name="image" size={18} color="#0A3251" />
+                    <Text style={[styles.btnText, styles.btnTextSecondary]}>
+                      {helpImageUri ? 'Cambiar imagen' : 'Subir imagen'}
+                    </Text>
+                  </TouchableOpacity>
                 </View>
-              </ScrollView>
+                {helpImageUri && (
+                  <Image source={{ uri: helpImageUri }} style={styles.helpImagePreview} />
+                )}
+              </View>
+            </ScrollView>
 
-              <TouchableOpacity
-                style={[styles.btn, styles.btnPrimary, styles.helpSubmitButton]}
-                onPress={handleSubmitHelp}
-              >
-                <Ionicons name="cloud-upload" size={18} color="#fff" />
-                <Text style={[styles.btnText, styles.btnTextPrimary]}>
-                  Subir trabajito
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </TouchableWithoutFeedback>
+            <TouchableOpacity
+              style={[styles.btn, styles.btnPrimary, styles.helpSubmitButton]}
+              onPress={handleSubmitHelp}
+            >
+              <Ionicons name="cloud-upload" size={18} color="#fff" />
+              <Text style={[styles.btnText, styles.btnTextPrimary]}>
+                Subir trabajito
+              </Text>
+            </TouchableOpacity>
+          </View>
         </KeyboardAvoidingView>
       </Modal>
+
 
       {/* MINIMODAL 2: Barra "Buscando a personas interesadas" */}
       <Modal

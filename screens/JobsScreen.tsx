@@ -9,11 +9,13 @@ import {
   ScrollView,
   SafeAreaView,
   TextInput,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types/navigation';
+import { supabase } from '../lib/supabase';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'Jobs'>;
 
@@ -26,56 +28,128 @@ type Job = {
   type: string;
   postedAt: string;
   matchesProfile: boolean;
+  latitude?: number;
+  longitude?: number;
+  photos?: string;
+  datetime?: string;
+  person_id?: number;
 };
-
-const MOCK_JOBS: Job[] = [
-  {
-    id: '1',
-    title: 'Ayuda para pintar 4 paredes',
-    description:
-      'Se busca persona responsable para ayudar a pintar 4 paredes de una habitación. Se proporciona pintura y material, solo se requiere puntualidad y cuidado.',
-    address: 'Col. Centro, Morelia, Mich.',
-    pay: '$300 MXN',
-    type: 'Pintura',
-    postedAt: 'Hace 10 min',
-    matchesProfile: true, // simulado como que coincide con el perfil
-  },
-];
 
 export default function JobsScreen() {
   const navigation = useNavigation<Nav>();
 
-  // “Primera vez” en esta sesión (solo frontend, no se guarda en storage)
-  const [showWelcome, setShowWelcome] = useState(true);
+  // Estados existentes
+  const [showWelcome, setShowWelcome] = useState(false); // Cambiado a false para no molestar durante desarrollo
   const [showInterestsModal, setShowInterestsModal] = useState(false);
-
-  // Filtros
   const [filtersVisible, setFiltersVisible] = useState(false);
-
-  // Texto libre de intereses (para NLP después)
   const [interestsText, setInterestsText] = useState('');
-
-  const [filterMatchesProfile, setFilterMatchesProfile] = useState(true);
-
-  // Job seleccionado
+  const [tempInterestsText, setTempInterestsText] = useState(''); // Temporal para el modal
+  const [filterMatchesProfile, setFilterMatchesProfile] = useState(false); // Cambiado a false por defecto
+  const [tempFilterMatchesProfile, setTempFilterMatchesProfile] = useState(false); // Temporal para el modal
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [jobDetailVisible, setJobDetailVisible] = useState(false);
 
-  useEffect(() => {
-    if (showWelcome) {
-      // Cuando cierre el welcome, se abre el de intereses (lo manejamos en el botón)
-    }
-  }, [showWelcome]);
+  // Nuevos estados para la BD
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const filteredJobs = MOCK_JOBS.filter((job) => {
-    // Filtro por perfil
+  // Cargar trabajos desde la base de datos
+  useEffect(() => {
+    loadJobsFromDatabase();
+  }, []);
+
+  // Sincronizar estados temporales cuando se abre el modal
+  useEffect(() => {
+    if (filtersVisible) {
+      setTempInterestsText(interestsText);
+      setTempFilterMatchesProfile(filterMatchesProfile);
+    }
+  }, [filtersVisible]);
+
+  const loadJobsFromDatabase = async () => {
+    try {
+      setLoading(true);
+      
+      const { data, error } = await supabase
+        .from('service_request')
+        .select(`
+          id,
+          name,
+          description,
+          proposed_price,
+          photos,
+          latitude,
+          longitude,
+          datetime,
+          person_id
+        `)
+        .order('datetime', { ascending: false });
+
+      if (error) {
+        console.error('Error cargando trabajos:', error);
+        setLoading(false);
+        return;
+      }
+
+      // Transformar los datos de la BD al formato Job
+      const formattedJobs: Job[] = (data || []).map((job) => {
+        const timeAgo = job.datetime 
+          ? calculateTimeAgo(new Date(job.datetime))
+          : 'Reciente';
+
+        return {
+          id: job.id.toString(),
+          title: job.name || 'Sin título',
+          description: job.description || 'Sin descripción',
+          address: formatAddress(job.latitude, job.longitude),
+          pay: `$${job.proposed_price || 0} MXN`,
+          type: 'Trabajo temporal',
+          postedAt: timeAgo,
+          matchesProfile: true, // Por ahora todos coinciden
+          latitude: job.latitude,
+          longitude: job.longitude,
+          photos: job.photos,
+          datetime: job.datetime,
+          person_id: job.person_id,
+        };
+      });
+
+      setJobs(formattedJobs);
+    } catch (error) {
+      console.error('Error al cargar trabajos:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Función auxiliar para formatear la dirección
+  const formatAddress = (lat?: number, lng?: number): string => {
+    if (!lat || !lng) return 'Ubicación no especificada';
+    return `${lat.toFixed(4)}°, ${lng.toFixed(4)}°`;
+  };
+
+  // Función auxiliar para calcular "hace cuánto"
+  const calculateTimeAgo = (date: Date): string => {
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffMins < 1) return 'Ahora mismo';
+    if (diffMins < 60) return `Hace ${diffMins} min`;
+    if (diffHours < 24) return `Hace ${diffHours} h`;
+    if (diffDays === 1) return 'Hace 1 día';
+    return `Hace ${diffDays} días`;
+  };
+
+  // Filtrar trabajos
+  const filteredJobs = jobs.filter((job) => {
     if (filterMatchesProfile && !job.matchesProfile) return false;
 
-    // Filtro por texto libre de intereses (placeholder hasta que entre NLP)
     if (interestsText.trim().length > 0) {
       const q = interestsText.toLowerCase();
-      const blob =
-        `${job.title} ${job.description} ${job.type}`.toLowerCase();
+      const blob = `${job.title} ${job.description} ${job.type}`.toLowerCase();
       if (!blob.includes(q)) return false;
     }
 
@@ -88,9 +162,30 @@ export default function JobsScreen() {
   };
 
   const handleChooseJob = () => {
-    // Aquí luego pueden mandar la solicitud al backend
+    console.log('Trabajo elegido:', selectedJob);
     setJobDetailVisible(false);
   };
+
+  // Aplicar filtros desde el modal
+  const applyFilters = () => {
+    setInterestsText(tempInterestsText);
+    setFilterMatchesProfile(tempFilterMatchesProfile);
+    setFiltersVisible(false);
+  };
+
+  // Limpiar filtros
+  const clearFilters = () => {
+    setTempInterestsText('');
+    setTempFilterMatchesProfile(false);
+    setInterestsText('');
+    setFilterMatchesProfile(false);
+    setFiltersVisible(false);
+  };
+
+  // Contar filtros activos
+  const activeFiltersCount = 
+    (interestsText.trim().length > 0 ? 1 : 0) + 
+    (filterMatchesProfile ? 1 : 0);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -110,85 +205,102 @@ export default function JobsScreen() {
       {/* Barra superior: filtros */}
       <View style={styles.topBar}>
         <Text style={styles.topBarText}>
-          Empleos disponibles en tu ciudad (simulados)
+          {loading 
+            ? 'Cargando...' 
+            : `${filteredJobs.length} de ${jobs.length} empleos`}
         </Text>
         <TouchableOpacity
-          style={styles.filterBtn}
+          style={[styles.filterBtn, activeFiltersCount > 0 && styles.filterBtnActive]}
           onPress={() => setFiltersVisible(true)}
         >
-          <Ionicons name="options-outline" size={18} color="#0A3251" />
-          <Text style={styles.filterBtnText}>Filtros</Text>
+          <Ionicons name="options-outline" size={18} color={activeFiltersCount > 0 ? '#FFFFFF' : '#0A3251'} />
+          <Text style={[styles.filterBtnText, activeFiltersCount > 0 && styles.filterBtnTextActive]}>
+            Filtros {activeFiltersCount > 0 && `(${activeFiltersCount})`}
+          </Text>
         </TouchableOpacity>
       </View>
 
       {/* Lista de trabajos */}
-      <ScrollView
-        style={styles.list}
-        contentContainerStyle={{ paddingBottom: 16 }}
-      >
-        {filteredJobs.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Ionicons name="briefcase-outline" size={40} color="#C7D1DF" />
-            <Text style={styles.emptyTitle}>No hay empleos con esos filtros</Text>
-            <Text style={styles.emptyText}>
-              Ajusta tus intereses o filtros para ver más opciones.
-            </Text>
-          </View>
-        ) : (
-          filteredJobs.map((job) => (
-            <TouchableOpacity
-              key={job.id}
-              style={styles.jobCard}
-              onPress={() => openJobDetail(job)}
-            >
-              <View style={styles.jobHeaderRow}>
-                <Text style={styles.jobTitle}>{job.title}</Text>
-                <View
-                  style={[
-                    styles.matchPill,
-                    job.matchesProfile ? styles.matchPillOn : styles.matchPillOff,
-                  ]}
-                >
-                  <Ionicons
-                    name={job.matchesProfile ? 'checkmark-circle' : 'alert-circle'}
-                    size={14}
-                    color={job.matchesProfile ? '#0A3251' : '#A1A9B5'}
-                  />
-                  <Text
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#0A3251" />
+          <Text style={styles.loadingText}>Cargando trabajos...</Text>
+        </View>
+      ) : (
+        <ScrollView
+          style={styles.list}
+          contentContainerStyle={{ paddingBottom: 16 }}
+        >
+          {filteredJobs.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="briefcase-outline" size={40} color="#C7D1DF" />
+              <Text style={styles.emptyTitle}>
+                {jobs.length === 0 
+                  ? 'No hay empleos disponibles' 
+                  : 'No hay empleos con esos filtros'}
+              </Text>
+              <Text style={styles.emptyText}>
+                {jobs.length === 0
+                  ? 'Aún no hay trabajos publicados en tu área.'
+                  : 'Ajusta tus intereses o filtros para ver más opciones.'}
+              </Text>
+            </View>
+          ) : (
+            filteredJobs.map((job) => (
+              <TouchableOpacity
+                key={job.id}
+                style={styles.jobCard}
+                onPress={() => openJobDetail(job)}
+              >
+                <View style={styles.jobHeaderRow}>
+                  <Text style={styles.jobTitle}>{job.title}</Text>
+                  <View
                     style={[
-                      styles.matchPillText,
-                      !job.matchesProfile && styles.matchPillTextOff,
+                      styles.matchPill,
+                      job.matchesProfile ? styles.matchPillOn : styles.matchPillOff,
                     ]}
                   >
-                    {job.matchesProfile ? 'Se ajusta a tu perfil' : 'Fuera de perfil'}
-                  </Text>
+                    <Ionicons
+                      name={job.matchesProfile ? 'checkmark-circle' : 'alert-circle'}
+                      size={14}
+                      color={job.matchesProfile ? '#0A3251' : '#A1A9B5'}
+                    />
+                    <Text
+                      style={[
+                        styles.matchPillText,
+                        !job.matchesProfile && styles.matchPillTextOff,
+                      ]}
+                    >
+                      {job.matchesProfile ? 'Se ajusta a tu perfil' : 'Fuera de perfil'}
+                    </Text>
+                  </View>
                 </View>
-              </View>
 
-              <Text style={styles.jobType}>{job.type}</Text>
+                <Text style={styles.jobType}>{job.type}</Text>
 
-              <View style={styles.jobInfoRow}>
-                <View style={styles.jobInfoCol}>
-                  <Text style={styles.jobLabel}>Pago</Text>
-                  <Text style={styles.jobPay}>{job.pay}</Text>
+                <View style={styles.jobInfoRow}>
+                  <View style={styles.jobInfoCol}>
+                    <Text style={styles.jobLabel}>Pago</Text>
+                    <Text style={styles.jobPay}>{job.pay}</Text>
+                  </View>
+                  <View style={styles.jobInfoCol}>
+                    <Text style={styles.jobLabel}>Ubicación</Text>
+                    <Text style={styles.jobAddress}>{job.address}</Text>
+                  </View>
                 </View>
-                <View style={styles.jobInfoCol}>
-                  <Text style={styles.jobLabel}>Ubicación</Text>
-                  <Text style={styles.jobAddress}>{job.address}</Text>
-                </View>
-              </View>
 
-              <View style={styles.jobFooterRow}>
-                <Text style={styles.jobPostedAt}>{job.postedAt}</Text>
-                <View style={styles.jobActionRight}>
-                  <Text style={styles.jobSeeMore}>Ver detalles</Text>
-                  <Ionicons name="chevron-forward" size={18} color="#0A3251" />
+                <View style={styles.jobFooterRow}>
+                  <Text style={styles.jobPostedAt}>{job.postedAt}</Text>
+                  <View style={styles.jobActionRight}>
+                    <Text style={styles.jobSeeMore}>Ver detalles</Text>
+                    <Ionicons name="chevron-forward" size={18} color="#0A3251" />
+                  </View>
                 </View>
-              </View>
-            </TouchableOpacity>
-          ))
-        )}
-      </ScrollView>
+              </TouchableOpacity>
+            ))
+          )}
+        </ScrollView>
+      )}
 
       {/* MODAL: Bienvenida (primera vez) */}
       <Modal
@@ -274,19 +386,29 @@ export default function JobsScreen() {
         />
         <View style={styles.filtersModalContainer}>
           <View style={styles.filtersCard}>
-            <Text style={styles.filtersTitle}>Filtros</Text>
+            <View style={styles.filtersTitleRow}>
+              <Text style={styles.filtersTitle}>Filtros</Text>
+              {(tempInterestsText.trim().length > 0 || tempFilterMatchesProfile) && (
+                <TouchableOpacity onPress={clearFilters}>
+                  <Text style={styles.clearFiltersText}>Limpiar todo</Text>
+                </TouchableOpacity>
+              )}
+            </View>
 
             <View style={styles.filterSection}>
               <Text style={styles.filterLabel}>Intereses (texto abierto)</Text>
               <TextInput
                 style={styles.interestsInput}
-                placeholder="Filtrar empleos según tus intereses (texto libre)"
+                placeholder="Ej. pintura, limpieza, tecnología..."
                 placeholderTextColor="#8FA1B3"
-                value={interestsText}
-                onChangeText={setInterestsText}
+                value={tempInterestsText}
+                onChangeText={setTempInterestsText}
                 multiline
                 textAlignVertical="top"
               />
+              <Text style={styles.filterHint}>
+                Se buscarán empleos que contengan estas palabras en el título o descripción
+              </Text>
             </View>
 
             <View style={styles.filterSection}>
@@ -298,29 +420,29 @@ export default function JobsScreen() {
                 <TouchableOpacity
                   style={[
                     styles.profileToggle,
-                    filterMatchesProfile && styles.profileToggleOn,
+                    tempFilterMatchesProfile && styles.profileToggleOn,
                   ]}
                   onPress={() =>
-                    setFilterMatchesProfile((prev) => !prev)
+                    setTempFilterMatchesProfile((prev) => !prev)
                   }
                 >
                   <View
                     style={[
                       styles.profileToggleKnob,
-                      filterMatchesProfile && styles.profileToggleKnobOn,
+                      tempFilterMatchesProfile && styles.profileToggleKnobOn,
                     ]}
                   />
                 </TouchableOpacity>
               </View>
               <Text style={styles.profileHint}>
                 Este filtro usará tu perfil profesional más adelante
-                (por ahora es solo diseño).
+                (por ahora todos los trabajos se marcan como compatibles).
               </Text>
             </View>
 
             <TouchableOpacity
               style={[styles.btn, styles.btnPrimary]}
-              onPress={() => setFiltersVisible(false)}
+              onPress={applyFilters}
             >
               <Text style={[styles.btnText, styles.btnTextPrimary]}>
                 Aplicar filtros
@@ -431,10 +553,29 @@ const styles = StyleSheet.create({
     borderColor: '#0A3251',
     gap: 6,
   },
+  filterBtnActive: {
+    backgroundColor: '#0A3251',
+    borderColor: '#0A3251',
+  },
   filterBtnText: {
     fontSize: 13,
     color: '#0A3251',
     fontWeight: '600',
+  },
+  filterBtnTextActive: {
+    color: '#FFFFFF',
+  },
+
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 14,
+    color: '#6B7A8C',
   },
 
   list: {
@@ -660,6 +801,16 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#0A3251',
   },
+  filtersTitleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  clearFiltersText: {
+    fontSize: 13,
+    color: '#E63946',
+    fontWeight: '600',
+  },
   filterSection: {
     marginTop: 4,
     gap: 6,
@@ -667,6 +818,12 @@ const styles = StyleSheet.create({
   filterLabel: {
     fontSize: 13,
     color: '#5A6B7C',
+    fontWeight: '600',
+  },
+  filterHint: {
+    fontSize: 11,
+    color: '#9AA4B2',
+    marginTop: 2,
   },
   profileFilterRow: {
     flexDirection: 'row',
