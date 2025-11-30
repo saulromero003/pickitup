@@ -163,37 +163,78 @@ export default function HomeScreen() {
     }
   };
 
-  const handleSubmitHelp = () => {
-    if (!helpDescription.trim()) {
-      Alert.alert('Describe el trabajito', 'Por favor describe lo que necesitas.');
-      return;
-    }
-    if (!helpAddress.trim()) {
-      Alert.alert('Domicilio requerido', 'Agrega un domicilio para el trabajito.');
-      return;
-    }
-    if (!helpPayment.trim()) {
-      Alert.alert('Falta el pago', 'Indica cuánto vas a pagar.');
+  const handleSubmitHelp = async () => {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (!user) {
+      Alert.alert('Error', 'Debes iniciar sesión');
       return;
     }
 
-    const payload = {
-      description: helpDescription.trim(),
-      address: helpAddress.trim(),
-      payment: helpPayment.trim(),
-      imageUri: helpImageUri,
+    // 🔹 Buscar el person_id (int) desde la tabla person usando el user_id (uuid)
+    const { data: personData, error: personError } = await supabase
+      .from('person')
+      .select('id')
+      .eq('user_id', user.id)
+      .single();
+
+    if (personError || !personData) {
+      Alert.alert('Error', 'No se encontró tu perfil');
+      return;
+    }
+
+    // Validaciones
+    if (!helpDescription.trim()) {
+      Alert.alert('Campo requerido', 'Por favor describe qué necesitas');
+      return;
+    }
+    
+    if (!helpAddress.trim()) {
+      Alert.alert('Campo requerido', 'Por favor indica el domicilio');
+      return;
+    }
+    
+    if (!helpPayment.trim()) {
+      Alert.alert('Campo requerido', 'Por favor indica el pago ofrecido');
+      return;
+    }
+
+    const paymentNumber = parseFloat(helpPayment.replace(/[^0-9.]/g, ''));
+    
+    const serviceData = {
+      name: helpAddress,
+      description: helpDescription,
+      proposed_price: paymentNumber,
+      photos: helpImageUri,
+      latitude: null,
+      longitude: null,
+      datetime: new Date().toISOString(),
+      person_id: personData.id, // ✅ Usar el ID entero de la tabla person
     };
-    console.log('HELP payload listo para backend:', payload);
+
+    const { data, error } = await supabase
+      .from('service_request')
+      .insert([serviceData])
+      .select();
+
+    if (error) throw error;
+
+    console.log('Trabajito creado exitosamente:', data);
 
     setHelpModalVisible(false);
-    setHelpSearchingVisible(true);
+    setHelpDescription('');
+    setHelpAddress('');
+    setHelpPayment('');
+    setHelpImageUri(null);
 
-    // 🔔 SOLO PARA DISEÑO: simular que se encontró alguien a los 3s
-    // Quiten esto cuando Sinuhe/Kevin conecten el backend
-    setTimeout(() => {
-      setHelpMatchVisible(true);
-    }, 3000);
-  };
+    Alert.alert('¡Éxito!', 'Tu trabajito ha sido publicado');
+
+  } catch (error) {
+    console.error('Error al crear trabajito:', error);
+    Alert.alert('Error', 'No se pudo publicar tu trabajito');
+  }
+};
 
   const handleCancelSearch = () => {
     if (!helpCancelEnabled) return;
