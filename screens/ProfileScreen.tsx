@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -9,37 +9,39 @@ import {
   ScrollView,
   Platform,
   Alert,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
-import * as ImagePicker from 'expo-image-picker';
-import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
-import { useNavigation } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../types/navigation';
-import { supabase } from '../lib/supabase';
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
+import DateTimePicker, {
+  DateTimePickerEvent,
+} from "@react-native-community/datetimepicker";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { RootStackParamList } from "../types/navigation";
+import { supabase } from "../lib/supabase";
 
-type Nav = NativeStackNavigationProp<RootStackParamList, 'Profile'>;
+type Nav = NativeStackNavigationProp<RootStackParamList, "Profile">;
 
 export default function ProfileScreen() {
   const navigation = useNavigation<Nav>();
-  
-  const [name, setName] = useState('');
-  const [lNamePat, setLNamePat] = useState('');
-  const [lNameMat, setLNameMat] = useState('');
+
+  const [name, setName] = useState("");
+  const [lNamePat, setLNamePat] = useState("");
+  const [lNameMat, setLNameMat] = useState("");
   const [birthdate, setBirthdate] = useState<Date | undefined>(undefined);
-  const [workProf, setWorkProf] = useState('');
+  const [workProf, setWorkProf] = useState("");
   const [profilePic, setProfilePic] = useState<string | null>(null);
 
-  const [country, setCountry] = useState('');
-  const [stateMx, setStateMx] = useState('');
-  const [city, setCity] = useState('');
-  const [neighborhood, setNeighborhood] = useState('');
-  const [street, setStreet] = useState('');
+  const [country, setCountry] = useState("");
+  const [stateMx, setStateMx] = useState("");
+  const [city, setCity] = useState("");
+  const [neighborhood, setNeighborhood] = useState("");
+  const [street, setStreet] = useState("");
 
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
 
   const [showDatePicker, setShowDatePicker] = useState(false);
 
@@ -48,7 +50,7 @@ export default function ProfileScreen() {
   }, []);
 
   const birthdateLabel = useMemo(() => {
-    if (!birthdate) return 'Seleccionar fecha';
+    if (!birthdate) return "Seleccionar fecha";
     return birthdate.toLocaleDateString();
   }, [birthdate]);
 
@@ -59,10 +61,10 @@ export default function ProfileScreen() {
 
   const onPickAvatar = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
+    if (status !== "granted") {
       Alert.alert(
-        'Permiso requerido',
-        'Se necesita permiso para acceder a la galería de fotos.'
+        "Permiso requerido",
+        "Se necesita permiso para acceder a la galería de fotos."
       );
       return;
     }
@@ -74,22 +76,30 @@ export default function ProfileScreen() {
       quality: 0.8,
     });
 
+    console.log("ImagePicker result:", result); // Debug
+    if (
+      result.canceled ||
+      result.assets[0] === null ||
+      result.assets[0] === undefined
+    )
+      return;
 
-    console.log('ImagePicker result:', result); // Debug
-    if (result.canceled || result.assets[0] === null || result.assets[0] === undefined ) return;
-
-    const arraybuffer = await fetch(result.assets[0].uri).then((res) => res.arrayBuffer())
-    const fileExt = result.assets[0].uri?.split('.').pop()?.toLowerCase() ?? 'jpeg'
-    const path = `${Date.now()}.${fileExt}`
-
+    const arraybuffer = await fetch(result.assets[0].uri).then((res) =>
+      res.arrayBuffer()
+    );
+    const fileExt =
+      result.assets[0].uri?.split(".").pop()?.toLowerCase() ?? "jpeg";
+    const path = `${Date.now()}.${fileExt}`;
 
     const { data, error: uploadError } = await supabase.storage
-        .from('avatars')
-        .upload(path, arraybuffer)
-    console.log('Upload result:', { data, uploadError }); // Debug
-    if (uploadError) throw uploadError
-    const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path)
-    setProfilePic(urlData.publicUrl)
+      .from("avatars")
+      .upload(path, arraybuffer);
+    console.log("Upload result:", { data, uploadError }); // Debug
+    if (uploadError) throw uploadError;
+    const { data: urlData } = supabase.storage
+      .from("avatars")
+      .getPublicUrl(path);
+    setProfilePic(urlData.publicUrl);
   };
 
   async function loadProfile() {
@@ -97,71 +107,83 @@ export default function ProfileScreen() {
       const { data: sessionData } = await supabase.auth.getSession();
       const user = sessionData.session?.user ?? null;
       if (!user) {
-        console.log('No hay usuario autenticado');
+        console.log("No hay usuario autenticado");
         return;
       }
 
-      console.log('User ID:', user.id); // Debug
+      console.log("User ID:", user.id); // Debug
 
       const { data, error } = await supabase
-        .from('person')
-        .select('*')
-        .eq('user_id', user.id)
+        .from("person")
+        .select("*")
+        .eq("user_id", user.id)
         .limit(1)
         .maybeSingle();
 
       if (error) {
-        console.log('loadProfile error:', error.message);
+        console.log("loadProfile error:", error.message);
         return;
       }
 
       if (data) {
-        console.log('Datos cargados:', data); // Debug
-        setName(data.name ?? '');
-        setLNamePat(data.l_name_pat ?? '');
-        setLNameMat(data.l_name_mat ?? '');
+        console.log("Datos cargados:", data); // Debug
+        setName(data.name ?? "");
+        setLNamePat(data.l_name_pat ?? "");
+        setLNameMat(data.l_name_mat ?? "");
         setBirthdate(data.birthdate ? new Date(data.birthdate) : undefined);
         setProfilePic(data.profile_pic ?? null);
-        setWorkProf(data.work_prof ?? '');
+        setWorkProf(data.work_prof ?? "");
 
-        setCountry(data.country ?? '');
-        setStateMx(data.state ?? '');
-        setCity(data.city ?? '');
-        setNeighborhood(data.neighborhood ?? '');
-        setStreet(data.street ?? '');
+        setCountry(data.country ?? "");
+        setStateMx(data.state ?? "");
+        setCity(data.city ?? "");
+        setNeighborhood(data.neighborhood ?? "");
+        setStreet(data.street ?? "");
       } else {
-        console.log('No se encontró perfil para este usuario');
+        console.log("No se encontró perfil para este usuario");
       }
     } catch (e: any) {
-      console.log('loadProfile exception:', e?.message ?? e);
+      console.log("loadProfile exception:", e?.message ?? e);
     }
   }
 
   const onSave = async () => {
     if (!name.trim()) {
-      Alert.alert('Falta tu nombre', 'Por favor ingresa tu nombre.');
+      Alert.alert("Falta tu nombre", "Por favor ingresa tu nombre.");
       return;
     }
 
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       const user = sessionData.session?.user ?? null;
-      
+
       if (!user) {
-        Alert.alert('Error', 'No hay sesión activa.');
+        Alert.alert("Error", "No hay sesión activa.");
         return;
       }
 
-      console.log('Guardando con user_id:', user.id); // Debug
+      console.log("Guardando con user_id:", user.id); // Debug
 
       // Formatear fecha
       let formattedDate = null;
       if (birthdate) {
         const year = birthdate.getFullYear();
-        const month = String(birthdate.getMonth() + 1).padStart(2, '0');
-        const day = String(birthdate.getDate()).padStart(2, '0');
+        const month = String(birthdate.getMonth() + 1).padStart(2, "0");
+        const day = String(birthdate.getDate()).padStart(2, "0");
         formattedDate = `${year}-${month}-${day}`;
       }
+
+      //Generación de "embedding" que es la informacion para el match con IA es AQUÍ
+      const textoParaVectorizar = workProf.trim();
+
+      console.log("1. Generando embedding...");
+      const { data: embeddingData, error: iaError } =
+        await supabase.functions.invoke("generate_embedding", {
+          body: { text: textoParaVectorizar },
+        });
+
+      if (iaError) throw iaError;
+      const embeddingVector = embeddingData.embedding;
 
       const updateData = {
         name: name.trim(),
@@ -175,19 +197,21 @@ export default function ProfileScreen() {
         city: city.trim(),
         area: neighborhood.trim(),
         street: street.trim(),
+        embedding: embeddingVector,
       };
 
 
-      console.log('Datos a actualizar:', updateData); // Debug
-
       const { error } = await supabase
-        .from('person')
+        .from("person")
         .update(updateData)
-        .eq('user_id', user.id);
+        .eq("user_id", user.id);
 
       if (error) {
-        console.log('Error al actualizar información:', error);
-        Alert.alert('Error', 'No se pudo guardar la información: ' + error.message);
+        console.log("Error al actualizar información:", error);
+        Alert.alert(
+          "Error",
+          "No se pudo guardar la información: " + error.message
+        );
         return;
       }
 
@@ -195,19 +219,31 @@ export default function ProfileScreen() {
       if (currentPassword || newPassword || confirmPassword) {
         // Basic validations
         if (!currentPassword) {
-          Alert.alert('Falta contraseña actual', 'Por favor ingresa tu contraseña actual para cambiarla.');
+          Alert.alert(
+            "Falta contraseña actual",
+            "Por favor ingresa tu contraseña actual para cambiarla."
+          );
           return;
         }
         if (!newPassword) {
-          Alert.alert('Falta nueva contraseña', 'Por favor ingresa la nueva contraseña.');
+          Alert.alert(
+            "Falta nueva contraseña",
+            "Por favor ingresa la nueva contraseña."
+          );
           return;
         }
         if (newPassword !== confirmPassword) {
-          Alert.alert('Contraseñas no coinciden', 'La nueva contraseña y su confirmación no coinciden.');
+          Alert.alert(
+            "Contraseñas no coinciden",
+            "La nueva contraseña y su confirmación no coinciden."
+          );
           return;
         }
         if (!user.email) {
-          Alert.alert('Error', 'No se pudo obtener el correo del usuario para verificar la contraseña.');
+          Alert.alert(
+            "Error",
+            "No se pudo obtener el correo del usuario para verificar la contraseña."
+          );
           return;
         }
 
@@ -218,8 +254,8 @@ export default function ProfileScreen() {
         });
 
         if (signInError) {
-          console.log('Re-authentication failed:', signInError);
-          Alert.alert('Error', 'La contraseña actual es incorrecta.');
+          console.log("Re-authentication failed:", signInError);
+          Alert.alert("Error", "La contraseña actual es incorrecta.");
           return;
         }
 
@@ -229,35 +265,44 @@ export default function ProfileScreen() {
         });
 
         if (updatePwdError) {
-          console.log('Password update error:', updatePwdError);
-          Alert.alert('Error', 'No se pudo actualizar la contraseña: ' + updatePwdError.message);
+          console.log("Password update error:", updatePwdError);
+          Alert.alert(
+            "Error",
+            "No se pudo actualizar la contraseña: " + updatePwdError.message
+          );
           return;
         }
         // Clear password fields on success
-        setCurrentPassword('');
-        setNewPassword('');
-        setConfirmPassword('');
+        setCurrentPassword("");
+        setNewPassword("");
+        setConfirmPassword("");
       }
 
-      Alert.alert('Éxito', 'Perfil actualizado correctamente.');
-      
+      Alert.alert("Éxito", "Perfil actualizado correctamente.");
     } catch (e: any) {
-      console.log('onSave exception:', e?.message ?? e);
-      Alert.alert('Error', 'Ocurrió un error al guardar.');
+      console.log("onSave exception:", e?.message ?? e);
+      Alert.alert("Error", "Ocurrió un error al guardar.");
     }
   };
 
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconBtn} hitSlop={8}>
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={styles.iconBtn}
+          hitSlop={8}
+        >
           <Ionicons name="arrow-back" size={24} color="#0A3251" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Perfil</Text>
         <View style={styles.iconBtn} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        keyboardShouldPersistTaps="handled"
+      >
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Foto de perfil</Text>
           <View style={styles.avatarRow}>
@@ -268,9 +313,14 @@ export default function ProfileScreen() {
                 <Ionicons name="person" size={36} color="#0A3251" />
               </View>
             )}
-            <TouchableOpacity style={[styles.btn, styles.btnSecondary]} onPress={onPickAvatar}>
+            <TouchableOpacity
+              style={[styles.btn, styles.btnSecondary]}
+              onPress={onPickAvatar}
+            >
               <Ionicons name="camera" size={18} color="#0A3251" />
-              <Text style={[styles.btnText, styles.btnTextSecondary]}>Cambiar foto</Text>
+              <Text style={[styles.btnText, styles.btnTextSecondary]}>
+                Cambiar foto
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -314,7 +364,13 @@ export default function ProfileScreen() {
               onPress={() => setShowDatePicker(true)}
             >
               <Ionicons name="calendar" size={18} color="#0A3251" />
-              <Text style={birthdate ? styles.inputButtonText : styles.inputButtonPlaceholder}>
+              <Text
+                style={
+                  birthdate
+                    ? styles.inputButtonText
+                    : styles.inputButtonPlaceholder
+                }
+              >
                 {birthdateLabel}
               </Text>
             </TouchableOpacity>
@@ -322,7 +378,7 @@ export default function ProfileScreen() {
             {showDatePicker && (
               <DateTimePicker
                 mode="date"
-                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                display={Platform.OS === "ios" ? "spinner" : "default"}
                 value={birthdate ?? new Date(2000, 0, 1)}
                 onChange={onPickDate}
                 maximumDate={new Date()}
@@ -386,14 +442,16 @@ export default function ProfileScreen() {
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Profesión</Text>
-          <Field label="Profesión u oficio">
+          <Text style={styles.cardTitle}>Colaboración</Text>
+          <Field label="Colaborando actualmente en: ">
             <TextInput
               placeholder="Ing. en Sistemas, Carpintero, etc."
               value={workProf}
               onChangeText={setWorkProf}
-              style={styles.input}
+              style={styles.interestsInput}
               placeholderTextColor="#8FA1B3"
+              multiline
+              textAlignVertical="top"
             />
           </Field>
         </View>
@@ -439,16 +497,27 @@ export default function ProfileScreen() {
       </ScrollView>
 
       <View style={styles.footer}>
-        <TouchableOpacity style={[styles.btn, styles.btnPrimary]} onPress={onSave}>
+        <TouchableOpacity
+          style={[styles.btn, styles.btnPrimary]}
+          onPress={onSave}
+        >
           <Ionicons name="save" size={18} color="#fff" />
-          <Text style={[styles.btnText, styles.btnTextPrimary]}>Guardar cambios</Text>
+          <Text style={[styles.btnText, styles.btnTextPrimary]}>
+            Guardar cambios
+          </Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <View style={styles.field}>
       <Text style={styles.label}>{label}</Text>
@@ -458,79 +527,96 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#FFFFFF' },
+  safe: { flex: 1, backgroundColor: "#FFFFFF" },
   header: {
     height: 56,
     paddingHorizontal: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#E6E9EE',
+    borderBottomColor: "#E6E9EE",
   },
-  headerTitle: { color: '#0A3251', fontSize: 18, fontWeight: '700' },
-  iconBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
+  headerTitle: { color: "#0A3251", fontSize: 18, fontWeight: "700" },
+  iconBtn: {
+    width: 32,
+    height: 32,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   scroll: { padding: 16, gap: 14 },
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
     borderRadius: 16,
     padding: 14,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOpacity: 0.06,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 3 },
     elevation: 2,
     gap: 8,
   },
-  cardTitle: { color: '#0A3251', fontWeight: '700', marginBottom: 6 },
+  cardTitle: { color: "#0A3251", fontWeight: "700", marginBottom: 6 },
   field: { marginBottom: 10 },
-  label: { color: '#5A6B7C', marginBottom: 6, fontSize: 13 },
+  label: { color: "#5A6B7C", marginBottom: 6, fontSize: 13 },
   input: {
     height: 44,
     borderWidth: 1,
-    borderColor: '#C7D1DF',
+    borderColor: "#C7D1DF",
     borderRadius: 10,
     paddingHorizontal: 12,
-    color: '#0A3251',
-    backgroundColor: '#F8FAFC',
+    color: "#0A3251",
+    backgroundColor: "#F8FAFC",
+  },
+  interestsInput: {
+    marginTop: 10,
+    minHeight: 80,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#C7D1DF",
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: "#F8FAFC",
+    fontSize: 13,
+    color: "#0A3251",
   },
   inputButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
   },
-  inputButtonText: { color: '#0A3251' },
-  inputButtonPlaceholder: { color: '#8FA1B3' },
-  avatarRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  inputButtonText: { color: "#0A3251" },
+  inputButtonPlaceholder: { color: "#8FA1B3" },
+  avatarRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   avatarImg: { width: 64, height: 64, borderRadius: 32 },
   avatarFallback: {
     width: 64,
     height: 64,
     borderRadius: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#D7ECFF',
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#D7ECFF",
   },
   btn: {
     height: 44,
     borderRadius: 12,
     paddingHorizontal: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 8,
   },
-  btnPrimary: { backgroundColor: '#0A3251' },
-  btnTextPrimary: { color: '#fff' },
+  btnPrimary: { backgroundColor: "#0A3251" },
+  btnTextPrimary: { color: "#fff" },
   btnSecondary: {
-    backgroundColor: '#F2F5F8',
+    backgroundColor: "#F2F5F8",
     borderWidth: 1,
-    borderColor: '#C7D1DF',
+    borderColor: "#C7D1DF",
   },
-  btnTextSecondary: { color: '#0A3251' },
-  btnText: { fontWeight: '700' },
+  btnTextSecondary: { color: "#0A3251" },
+  btnText: { fontWeight: "700" },
   footer: {
-    position: 'absolute',
+    position: "absolute",
     left: 0,
     right: 0,
     bottom: 12,

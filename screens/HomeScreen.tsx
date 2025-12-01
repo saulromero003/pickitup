@@ -202,6 +202,19 @@ export default function HomeScreen() {
     }
 
     const paymentNumber = parseFloat(helpPayment.replace(/[^0-9.]/g, ''));
+
+    //Generación de "embedding" que es la informacion para el match con IA es AQUÍ
+      const textoParaVectorizar = helpDescription.trim();
+
+      console.log("1. Generando embedding...");
+      const { data: embeddingData, error: iaError } =
+        await supabase.functions.invoke("generate_embedding", {
+          body: { text: textoParaVectorizar },
+        });
+
+      if (iaError) throw iaError;
+      const embeddingVector = embeddingData.embedding;
+
     
     const serviceData = {
       name: helpTitle.trim(),
@@ -212,6 +225,7 @@ export default function HomeScreen() {
       longitude: null,
       datetime: new Date().toISOString(),
       person_id: personData.id, // ✅ Usar el ID entero de la tabla person
+      embedding: embeddingVector,
     }
 
     const { data, error } = await supabase
@@ -221,7 +235,6 @@ export default function HomeScreen() {
 
     if (error) throw error;
 
-    console.log('Trabajito creado exitosamente:', data);
 
     setHelpModalVisible(false);
     setHelpDescription('');

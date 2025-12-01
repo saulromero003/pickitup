@@ -10,6 +10,7 @@ import {
   SafeAreaView,
   TextInput,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -35,11 +36,14 @@ type Job = {
   person_id?: number;
 };
 
+
+
 export default function JobsScreen() {
   const navigation = useNavigation<Nav>();
+  const [user, setUser] = useState<any>(null);
 
   // Estados existentes
-  const [showWelcome, setShowWelcome] = useState(false); // Cambiado a false para no molestar durante desarrollo
+  const [showWelcome, setShowWelcome] = useState(true); // Cambiado a false para no molestar durante desarrollo
   const [showInterestsModal, setShowInterestsModal] = useState(false);
   const [filtersVisible, setFiltersVisible] = useState(false);
   const [interestsText, setInterestsText] = useState('');
@@ -56,6 +60,10 @@ export default function JobsScreen() {
   // Cargar trabajos desde la base de datos
   useEffect(() => {
     loadJobsFromDatabase();
+    supabase.auth.getSession().then(({ data }) => {
+        setUser(data.session?.user ?? null);
+        console.log('SESSION', data.session?.user?.user_metadata);
+      });
   }, []);
 
   // Sincronizar estados temporales cuando se abre el modal
@@ -65,6 +73,7 @@ export default function JobsScreen() {
       setTempFilterMatchesProfile(filterMatchesProfile);
     }
   }, [filtersVisible]);
+
 
   const loadJobsFromDatabase = async () => {
     try {
@@ -181,6 +190,44 @@ export default function JobsScreen() {
     setFilterMatchesProfile(false);
     setFiltersVisible(false);
   };
+
+  const handleInterestsSave = async () => {
+
+    //Generación de "embedding" que es la informacion para el match con IA es AQUÍ
+          const textoParaVectorizar = interestsText.trim();
+    
+          console.log("1. Generando embedding...");
+          const { data: embeddingData, error: iaError } =
+            await supabase.functions.invoke("generate_embedding", {
+              body: { text: textoParaVectorizar },
+            });
+    
+          if (iaError) throw iaError;
+          const embeddingVector = embeddingData.embedding;
+    
+          const updateData = {
+            work_prof: interestsText.trim(),
+            embedding: embeddingVector,
+          };
+    
+          console.log("Datos a actualizar:", updateData); // Debug
+    
+          const { error } = await supabase
+            .from("person")
+            .update(updateData)
+            .eq("user_id", user.id);
+    
+          if (error) {
+            console.log("Error al actualizar información:", error);
+            Alert.alert(
+              "Error",
+              "No se pudo guardar la información: " + error.message
+            );
+            return;
+          }
+
+    setShowInterestsModal(false);
+  }
 
   // Contar filtros activos
   const activeFiltersCount = 
@@ -363,7 +410,7 @@ export default function JobsScreen() {
 
             <TouchableOpacity
               style={[styles.btn, styles.btnPrimary, { marginTop: 8 }]}
-              onPress={() => setShowInterestsModal(false)}
+              onPress={handleInterestsSave}
             >
               <Text style={[styles.btnText, styles.btnTextPrimary]}>
                 Guardar intereses
