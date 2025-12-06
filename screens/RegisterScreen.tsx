@@ -302,7 +302,8 @@ export default function RegisterScreen() {
       const coloniaNorm = colonia.trim();
       const calleNorm = calle.trim();
 
-      // 1) CREAR USUARIO EN AUTH (Sign Up)
+      // 1) CREAR USUARIO (Sign Up)
+      // Esto inicia sesión automáticamente si no requiere confirmación de correo
       const { data, error } = await supabase.auth.signUp({
         email: emailNorm,
         password,
@@ -311,20 +312,13 @@ export default function RegisterScreen() {
 
       const user = data.user;
       
-      // Caso: Si supabase está configurado para pedir confirmación de correo obligatoria y no devuelve user inmediato
       if (!user) {
-        Alert.alert('Registro exitoso', 'Te enviamos un correo para verificar tu cuenta. Ábrelo y vuelve a la app.', [
-          {
-            text: 'OK',
-            onPress: () => {
-              navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
-            },
-          },
-        ]);
+        Alert.alert('Registro exitoso', 'Verifica tu correo para continuar.', [{ text: 'OK' }]);
         return;
       }
 
-      // 2) GUARDAR PERFIL EN BASE DE DATOS (Upsert)
+      // 2) GUARDAR PERFIL (Upsert)
+      // Aprovechamos que hay sesión activa para guardar los datos
       const { error: upsertError } = await supabase.from('person').upsert({
         user_id: user.id,
         name: nombreNorm,
@@ -344,18 +338,19 @@ export default function RegisterScreen() {
 
       if (upsertError) throw upsertError;
 
-      // 3) CIERRE DE SESIÓN FORZADO
-      // Cerramos la sesión inmediatamente para evitar que entre al Home automáticamente.
+      // 3) CERRAR SESIÓN Y MOSTRAR ALERTA
+      // Cerramos la sesión para "patear" al usuario al Login
       await supabase.auth.signOut();
 
-      // 4) NOTIFICAR Y REDIRIGIR A LOGIN
-      Alert.alert('Registro exitoso', 'Tu cuenta ha sido creada. Por favor, inicia sesión con tus nuevas credenciales.', [
-        {
-          text: 'Ir al Login',
+      // Alerta simple, sin botón de navegación redundante
+      Alert.alert('¡Cuenta creada!', 'El registro fue exitoso. Ya puedes iniciar sesión.', [
+        { 
+          text: 'OK', 
           onPress: () => {
-            navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
-          },
-        },
+             // Por seguridad, forzamos la navegación al login por si el signOut no lo hizo
+             navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+          }
+        }
       ]);
 
     } catch (e: any) {

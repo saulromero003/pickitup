@@ -49,7 +49,7 @@ export default function HomeScreen() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setUser(data.session?.user ?? null);
-      console.log('SESSION', data.session?.user?.user_metadata);
+      // console.log('SESSION', data.session?.user?.user_metadata);
     });
   }, []);
 
@@ -81,37 +81,42 @@ export default function HomeScreen() {
   const onSignOut = async () => {
     try {
       await supabase.auth.signOut();
+      // Forzar navegación al Login tras salir
+      navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
     } catch (e: any) {
       console.log('signOut error:', e?.message);
     }
   };
 
-  // Traer foto de perfil desde tabla person.profile_pic
+  // Traer foto de perfil desde tabla person.profile_pic (CORREGIDO)
   useEffect(() => {
+    let isActive = true; // Para evitar actualizaciones si el componente se desmonta
+
     async function fetchProfilePic() {
       if (!user?.id) return;
       try {
-        const { data: profile_pic_url, error } = await supabase
+        // Usamos maybeSingle() para evitar error si no hay filas
+        const { data, error } = await supabase
           .from('person')
           .select('profile_pic')
           .eq('user_id', user.id)
-          .single();
+          .maybeSingle(); 
 
-        if (error || !profile_pic_url) {
-          console.error(
-            'Error fetching user data from supabase to get the image:',
-            error
-          );
+        if (error) {
+          console.log('Error fetching profile pic (ignorable):', error.message);
           return;
         }
-        setProfilePicUri(profile_pic_url.profile_pic);
-        console.log('Fetched profile pic URL:', profile_pic_url.profile_pic);
+
+        if (isActive && data?.profile_pic) {
+          setProfilePicUri(data.profile_pic);
+        }
       } catch (error) {
         console.error('Error fetching profile pic:', error);
       }
     }
 
     fetchProfilePic();
+    return () => { isActive = false; };
   }, [user?.id]);
 
   // Ventana de 5 min para cancelar búsqueda
@@ -178,10 +183,10 @@ export default function HomeScreen() {
       .from('person')
       .select('id')
       .eq('user_id', user.id)
-      .single();
+      .maybeSingle(); // Cambiado a maybeSingle por seguridad
 
     if (personError || !personData) {
-      Alert.alert('Error', 'No se encontró tu perfil');
+      Alert.alert('Error', 'No se encontró tu perfil. Intenta reiniciar la app.');
       return;
     }
 
