@@ -211,6 +211,8 @@ function BirthdateField({
                   maximumDate={maxDate}
                   minimumDate={minDate}
                   display="spinner"
+                  themeVariant="light"
+                  textColor="#000000"
                 />
                 <TouchableOpacity style={styles.modalClose} onPress={() => setOpen(false)}>
                   <Text style={styles.modalCloseText}>Listo</Text>
