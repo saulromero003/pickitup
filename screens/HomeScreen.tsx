@@ -49,7 +49,6 @@ export default function HomeScreen() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setUser(data.session?.user ?? null);
-      // console.log('SESSION', data.session?.user?.user_metadata);
     });
   }, []);
 
@@ -81,21 +80,19 @@ export default function HomeScreen() {
   const onSignOut = async () => {
     try {
       await supabase.auth.signOut();
-      // Forzar navegación al Login tras salir
       navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
     } catch (e: any) {
       console.log('signOut error:', e?.message);
     }
   };
 
-  // Traer foto de perfil desde tabla person.profile_pic (CORREGIDO)
+  // Traer foto de perfil desde tabla person.profile_pic
   useEffect(() => {
-    let isActive = true; // Para evitar actualizaciones si el componente se desmonta
+    let isActive = true;
 
     async function fetchProfilePic() {
       if (!user?.id) return;
       try {
-        // Usamos maybeSingle() para evitar error si no hay filas
         const { data, error } = await supabase
           .from('person')
           .select('profile_pic')
@@ -125,7 +122,7 @@ export default function HomeScreen() {
       setHelpCancelEnabled(true);
       const timeout = setTimeout(() => {
         setHelpCancelEnabled(false);
-      }, 5 * 60 * 1000); // 5 minutos
+      }, 5 * 60 * 1000); 
       return () => clearTimeout(timeout);
     }
   }, [helpSearchingVisible]);
@@ -178,19 +175,17 @@ export default function HomeScreen() {
       return;
     }
 
-    // 🔹 Buscar el person_id (int) desde la tabla person usando el user_id (uuid)
     const { data: personData, error: personError } = await supabase
       .from('person')
       .select('id')
       .eq('user_id', user.id)
-      .maybeSingle(); // Cambiado a maybeSingle por seguridad
+      .maybeSingle(); 
 
     if (personError || !personData) {
       Alert.alert('Error', 'No se encontró tu perfil. Intenta reiniciar la app.');
       return;
     }
 
-    // Validaciones
     if (!helpDescription.trim()) {
       Alert.alert('Campo requerido', 'Por favor describe qué necesitas');
       return;
@@ -208,7 +203,7 @@ export default function HomeScreen() {
 
     const paymentNumber = parseFloat(helpPayment.replace(/[^0-9.]/g, ''));
 
-    //Generación de "embedding" que es la informacion para el match con IA es AQUÍ
+    //Generación de embedding
       const textoParaVectorizar = helpDescription.trim();
 
       console.log("1. Generando embedding...");
@@ -229,7 +224,7 @@ export default function HomeScreen() {
       latitude: null,
       longitude: null,
       datetime: new Date().toISOString(),
-      person_id: personData.id, // ✅ Usar el ID entero de la tabla person
+      person_id: personData.id,
       embedding: embeddingVector,
     }
 
@@ -258,7 +253,6 @@ export default function HomeScreen() {
   const handleCancelSearch = () => {
     if (!helpCancelEnabled) return;
     setHelpSearchingVisible(false);
-    // Aquí luego pueden informar al backend que se canceló la oferta
   };
 
   return (
@@ -453,21 +447,21 @@ export default function HomeScreen() {
                   <Image source={{ uri: helpImageUri }} style={styles.helpImagePreview} />
                 )}
               </View>
-            </ScrollView>
 
-            <TouchableOpacity
-              style={[styles.btn, styles.btnPrimary, styles.helpSubmitButton]}
-              onPress={handleSubmitHelp}
-            >
-              <Ionicons name="cloud-upload" size={18} color="#fff" />
-              <Text style={[styles.btnText, styles.btnTextPrimary]}>
-                Subir trabajito
-              </Text>
-            </TouchableOpacity>
+              {/* Botón dentro del scroll */}
+              <TouchableOpacity
+                style={[styles.btn, styles.btnPrimary, styles.helpSubmitButton]}
+                onPress={handleSubmitHelp}
+              >
+                <Ionicons name="cloud-upload" size={18} color="#fff" />
+                <Text style={[styles.btnText, styles.btnTextPrimary]}>
+                  Subir trabajito
+                </Text>
+              </TouchableOpacity>
+            </ScrollView>
           </View>
         </KeyboardAvoidingView>
       </Modal>
-
 
       {/* MINIMODAL 2: Barra "Buscando a personas interesadas" */}
       <Modal
@@ -558,7 +552,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     right: 0,
-    bottom: 24,
+    bottom: 100, // <--- CAMBIO AQUÍ: Se subió de 24 a 100
     alignItems: 'center',
   },
   card: {
@@ -672,11 +666,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
     padding: 16,
-    paddingBottom: 16,
-    maxHeight: '80%', // ← limita el alto del modal
+    maxHeight: '85%', // límite para que entre el scroll
   },
   helpModalScroll: {
-    paddingBottom: 8,
+    paddingBottom: 40, // más espacio al final para la parte de imagen + botón
   },
   helpModalTitle: {
     fontSize: 18,
@@ -720,8 +713,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#E1E8F0',
   },
   helpSubmitButton: {
-    marginTop: 10,
-    width: '100%', // ← botón ocupa ancho del modal, nunca se sale
+    marginTop: 16,
+    width: '100%', 
   },
 
   /* HELP! minimodal 2 */
