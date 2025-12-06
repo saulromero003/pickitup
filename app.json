@@ -13,12 +13,16 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Necesitamos tu ubicación para mostrar trabajos cercanos",
+      
       "supportsTablet": true,
       "config": {
-        "googleMapsApiKey":  "process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY",
-        },
+        "googleMapsApiKey":  "process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY"
+        }
     },
     "android": {
+      "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION"],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -27,12 +31,13 @@
       "predictiveBackGestureEnabled": false,
       "config": {
         "googleMaps": {
-          "apiKey": "process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY",
-        },
-      },
+          "apiKey": "process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY"
+        }
+      }
     },
     "web": {
       "favicon": "./assets/favicon.png"
     }
   }
+}
 }

@@ -11,6 +11,7 @@ import {
   TextInput,
   ActivityIndicator,
   Alert,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -594,6 +595,13 @@ export default function JobsScreen() {
                   {selectedJob.description}
                 </Text>
 
+                {selectedJob.photos ? (
+                  <Image
+                    source={{ uri: Array.isArray(selectedJob.photos) ? selectedJob.photos[0] : selectedJob.photos }}
+                    style={styles.jobDetailImage}
+                  />
+                ) : null}
+
                 <TouchableOpacity
                   style={[styles.btn, styles.btnPrimary, { marginTop: 12 }]}
                   onPress={handleChooseJob}
@@ -1137,6 +1145,13 @@ const styles = StyleSheet.create({
   jobDetailDescription: {
     fontSize: 13,
     color: '#4A5A6C',
+  },
+  jobDetailImage: {
+    width: '100%',
+    height: 180,
+    borderRadius: 10,
+    marginTop: 10,
+    backgroundColor: '#E1E8F0',
   },
 
   /* Botones reutilizables */

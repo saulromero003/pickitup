@@ -19,6 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import * as ImagePicker from 'expo-image-picker';
+import * as Location from 'expo-location';
 
 import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../types/navigation';
@@ -49,11 +50,48 @@ export default function HomeScreen() {
   // Tus compas pueden setear esto con un objeto similar a "Job" o "service_request"
   const [serviceInCourseJob, setServiceInCourseJob] = useState<any | null>(null);
   const [serviceDetailVisible, setServiceDetailVisible] = useState(false);
+  const [jobMarkers, setJobMarkers] = useState<Array<any>>([]);
+  const [selectedJob, setSelectedJob] = useState<any | null>(null);
+  const [jobDetailVisible, setJobDetailVisible] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setUser(data.session?.user ?? null);
     });
+  }, []);
+
+  // Cargar trabajos con lat/long desde la base para mostrarlos en el mapa
+  const fetchJobMarkers = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('service_request')
+        .select('id, name, description, proposed_price, photos, latitude, longitude')
+        .not('latitude', 'is', null)
+        .not('longitude', 'is', null);
+
+      if (error) {
+        console.warn('Error fetching job markers:', error.message || error);
+        return;
+      }
+
+      const markers = (data || []).map((r: any) => ({
+        id: r.id,
+        title: r.name || r.description || 'Trabajo',
+        description: r.description || '',
+        latitude: Number(r.latitude),
+        longitude: Number(r.longitude),
+        photo: Array.isArray(r.photos) ? r.photos[0] : r.photos || null,
+        pay: r.proposed_price != null ? `$${r.proposed_price} MXN` : undefined,
+      }));
+
+      setJobMarkers(markers);
+    } catch (err) {
+      console.error('fetchJobMarkers error', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchJobMarkers();
   }, []);
 
   const displayName = useMemo(() => {
@@ -224,13 +262,62 @@ export default function HomeScreen() {
       if (iaError) throw iaError;
       const embeddingVector = embeddingData.embedding;
 
+      // Intentar obtener la ubicación actual del usuario (si concede permisos)
+      let latitude: number | null = null;
+      let longitude: number | null = null;
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === 'granted') {
+          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          latitude = loc.coords.latitude;
+          longitude = loc.coords.longitude;
+        } else {
+          console.log('Permiso de ubicación denegado por el usuario');
+        }
+      } catch (locErr) {
+        console.warn('Error obteniendo ubicación:', locErr);
+      }
+
+      // Si hay una imagen local, intentar subirla a Supabase Storage y usar la URL pública
+      let photosUrls: string | string[] | null = null;
+      if (helpImageUri) {
+        try {
+          const uri = helpImageUri;
+          const response = await fetch(uri);
+          const blob = await response.blob();
+
+          // determinar extensión aproximada
+          const extMatch = uri.match(/\.([a-zA-Z0-9]+)(?:$|\?)/);
+          const ext = extMatch ? extMatch[1] : 'jpg';
+          const filename = `job_photos/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+          const bucket = 'job-photos';
+
+          const { data: uploadData, error: uploadError } = await supabase.storage.from(bucket).upload(filename, blob, {
+            contentType: blob.type || `image/${ext}`,
+            cacheControl: '3600',
+            upsert: false,
+          });
+
+          if (uploadError) {
+            console.warn('Error subiendo imagen a Storage:', uploadError.message || uploadError);
+          } else {
+            const { data: publicData } = supabase.storage.from(bucket).getPublicUrl(filename);
+            if (publicData?.publicUrl) {
+              photosUrls = [publicData.publicUrl];
+            }
+          }
+        } catch (imgErr) {
+          console.warn('Error procesando o subiendo la imagen:', imgErr);
+        }
+      }
+
       const serviceData = {
         name: helpTitle.trim(),
         description: helpDescription,
         proposed_price: paymentNumber,
-        photos: helpImageUri,
-        latitude: null,
-        longitude: null,
+        photos: photosUrls ?? helpImageUri,
+        latitude,
+        longitude,
         datetime: new Date().toISOString(),
         person_id: personData.id,
         embedding: embeddingVector,
@@ -242,6 +329,13 @@ export default function HomeScreen() {
         .select();
 
       if (error) throw error;
+
+      // Refrescar marcadores en el mapa después de crear el trabajito
+      try {
+        await fetchJobMarkers();
+      } catch (e) {
+        console.warn('No se pudieron refrescar los marcadores:', e);
+      }
 
       setHelpModalVisible(false);
       setHelpDescription('');
@@ -265,6 +359,12 @@ export default function HomeScreen() {
     setHelpSearchingVisible(false);
   };
 
+  const handleChooseJob = () => {
+    // Acción cuando el usuario elige el trabajo desde el modal del mapa
+    console.log('Trabajo elegido desde mapa:', selectedJob);
+    setJobDetailVisible(false);
+  };
+
   return (
     <SafeAreaView style={styles.safe}>
       {/* Header */}
@@ -285,7 +385,26 @@ export default function HomeScreen() {
       </View>
 
       {/* Mapa */}
-      <MapViewComponent />
+      <MapViewComponent
+        jobMarkers={jobMarkers}
+        onMarkerPress={(m) => {
+          try {
+            const job = {
+              id: m.id,
+              title: m.title,
+              description: m.description,
+              address: m.latitude && m.longitude ? `${m.latitude.toFixed(4)}°, ${m.longitude.toFixed(4)}°` : 'Ubicación no especificada',
+              pay: m.pay,
+              photo: m.photo ?? null,
+              type: 'Trabajo temporal',
+            };
+            setSelectedJob(job);
+            setJobDetailVisible(true);
+          } catch (err) {
+            console.warn('Error al manejar onMarkerPress en HomeScreen:', err);
+          }
+        }}
+      />
 
       {/* Bottom card */}
       <View style={styles.bottomWrap} pointerEvents="box-none">
@@ -544,6 +663,53 @@ export default function HomeScreen() {
               ? 'Puedes cancelar la búsqueda durante los primeros 5 minutos.'
               : 'El tiempo para cancelar ha terminado.'}
           </Text>
+        </View>
+      </Modal>
+
+      {/* MODAL: Detalle del empleo (igual que JobsScreen) */}
+      <Modal
+        visible={jobDetailVisible && !!selectedJob}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setJobDetailVisible(false)}
+      >
+        <Pressable
+          style={styles.backdrop}
+          onPress={() => setJobDetailVisible(false)}
+        />
+        <View style={styles.jobDetailContainer}>
+          <View style={styles.jobDetailCard}>
+            {selectedJob && (
+              <>
+                <Text style={styles.jobDetailTitle}>{selectedJob.title}</Text>
+                <Text style={styles.jobDetailType}>{selectedJob.type}</Text>
+
+                <View style={styles.jobDetailRow}>
+                  <Text style={styles.jobDetailLabel}>Pago:</Text>
+                  <Text style={styles.jobDetailValue}>{selectedJob.pay}</Text>
+                </View>
+
+                <View style={styles.jobDetailRow}>
+                  <Text style={styles.jobDetailLabel}>Ubicación:</Text>
+                  <Text style={styles.jobDetailValue}>{selectedJob.address}</Text>
+                </View>
+
+                <Text style={styles.jobDetailSectionTitle}>Descripción</Text>
+                <Text style={styles.jobDetailDescription}>{selectedJob.description}</Text>
+
+                  {selectedJob.photo ? (
+                    <Image source={{ uri: selectedJob.photo }} style={styles.jobDetailImage} />
+                  ) : null}
+
+                <TouchableOpacity
+                  style={[styles.btn, styles.btnPrimary, { marginTop: 12 }]}
+                  onPress={handleChooseJob}
+                >
+                  <Text style={[styles.btnText, styles.btnTextPrimary]}>Elegir este trabajo</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
         </View>
       </Modal>
 
@@ -1057,5 +1223,66 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#4A5A6C',
     marginTop: 10,
+  },
+  /* Job detail modal styles */
+  jobDetailContainer: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  jobDetailCard: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 20,
+    shadowColor: '#000',
+    shadowOpacity: 0.16,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: -4 },
+    elevation: 12,
+  },
+  jobDetailTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#0A3251',
+  },
+  jobDetailType: {
+    fontSize: 13,
+    color: '#6B7A8C',
+    marginTop: 4,
+  },
+  jobDetailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  jobDetailLabel: {
+    fontSize: 13,
+    color: '#6B7A8C',
+    marginRight: 8,
+  },
+  jobDetailValue: {
+    fontSize: 13,
+    color: '#0A3251',
+    fontWeight: '700',
+  },
+  jobDetailSectionTitle: {
+    marginTop: 10,
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0A3251',
+  },
+  jobDetailDescription: {
+    marginTop: 6,
+    fontSize: 13,
+    color: '#4A5A6C',
+  },
+  jobDetailImage: {
+    width: '100%',
+    height: 180,
+    borderRadius: 10,
+    marginTop: 10,
+    backgroundColor: '#E1E8F0',
   },
 });
