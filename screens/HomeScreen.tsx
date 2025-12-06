@@ -45,6 +45,10 @@ export default function HomeScreen() {
   const [helpCancelEnabled, setHelpCancelEnabled] = useState(true);
   const [helpTitle, setHelpTitle] = useState('');
 
+  // ===== Estados nuevos: servicio en curso (creador) =====
+  // Tus compas pueden setear esto con un objeto similar a "Job" o "service_request"
+  const [serviceInCourseJob, setServiceInCourseJob] = useState<any | null>(null);
+  const [serviceDetailVisible, setServiceDetailVisible] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -97,7 +101,7 @@ export default function HomeScreen() {
           .from('person')
           .select('profile_pic')
           .eq('user_id', user.id)
-          .maybeSingle(); 
+          .maybeSingle();
 
         if (error) {
           console.log('Error fetching profile pic (ignorable):', error.message);
@@ -113,7 +117,9 @@ export default function HomeScreen() {
     }
 
     fetchProfilePic();
-    return () => { isActive = false; };
+    return () => {
+      isActive = false;
+    };
   }, [user?.id]);
 
   // Ventana de 5 min para cancelar búsqueda
@@ -122,12 +128,12 @@ export default function HomeScreen() {
       setHelpCancelEnabled(true);
       const timeout = setTimeout(() => {
         setHelpCancelEnabled(false);
-      }, 5 * 60 * 1000); 
+      }, 5 * 60 * 1000);
       return () => clearTimeout(timeout);
     }
   }, [helpSearchingVisible]);
 
-  // Auto cierre del modal de "encontraste una mano" a los 7s
+  // Auto cierre del modal de match a los 7s
   useEffect(() => {
     if (helpMatchVisible) {
       const timeout = setTimeout(() => {
@@ -167,88 +173,92 @@ export default function HomeScreen() {
   };
 
   const handleSubmitHelp = async () => {
-  try {
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    if (!user) {
-      Alert.alert('Error', 'Debes iniciar sesión');
-      return;
-    }
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
 
-    const { data: personData, error: personError } = await supabase
-      .from('person')
-      .select('id')
-      .eq('user_id', user.id)
-      .maybeSingle(); 
+      if (!user) {
+        Alert.alert('Error', 'Debes iniciar sesión');
+        return;
+      }
 
-    if (personError || !personData) {
-      Alert.alert('Error', 'No se encontró tu perfil. Intenta reiniciar la app.');
-      return;
-    }
+      const { data: personData, error: personError } = await supabase
+        .from('person')
+        .select('id')
+        .eq('user_id', user.id)
+        .maybeSingle();
 
-    if (!helpDescription.trim()) {
-      Alert.alert('Campo requerido', 'Por favor describe qué necesitas');
-      return;
-    }
-    
-    if (!helpAddress.trim()) {
-      Alert.alert('Campo requerido', 'Por favor indica el domicilio');
-      return;
-    }
-    
-    if (!helpPayment.trim()) {
-      Alert.alert('Campo requerido', 'Por favor indica el pago ofrecido');
-      return;
-    }
+      if (personError || !personData) {
+        Alert.alert(
+          'Error',
+          'No se encontró tu perfil. Intenta reiniciar la app.'
+        );
+        return;
+      }
 
-    const paymentNumber = parseFloat(helpPayment.replace(/[^0-9.]/g, ''));
+      if (!helpDescription.trim()) {
+        Alert.alert('Campo requerido', 'Por favor describe qué necesitas');
+        return;
+      }
 
-    //Generación de embedding
+      if (!helpAddress.trim()) {
+        Alert.alert('Campo requerido', 'Por favor indica el domicilio');
+        return;
+      }
+
+      if (!helpPayment.trim()) {
+        Alert.alert('Campo requerido', 'Por favor indica el pago ofrecido');
+        return;
+      }
+
+      const paymentNumber = parseFloat(helpPayment.replace(/[^0-9.]/g, ''));
+
+      //Generación de embedding
       const textoParaVectorizar = helpDescription.trim();
 
-      console.log("1. Generando embedding...");
+      console.log('1. Generando embedding...');
       const { data: embeddingData, error: iaError } =
-        await supabase.functions.invoke("generate_embedding", {
+        await supabase.functions.invoke('generate_embedding', {
           body: { text: textoParaVectorizar },
         });
 
       if (iaError) throw iaError;
       const embeddingVector = embeddingData.embedding;
 
-    
-    const serviceData = {
-      name: helpTitle.trim(),
-      description: helpDescription,
-      proposed_price: paymentNumber,
-      photos: helpImageUri,
-      latitude: null,
-      longitude: null,
-      datetime: new Date().toISOString(),
-      person_id: personData.id,
-      embedding: embeddingVector,
+      const serviceData = {
+        name: helpTitle.trim(),
+        description: helpDescription,
+        proposed_price: paymentNumber,
+        photos: helpImageUri,
+        latitude: null,
+        longitude: null,
+        datetime: new Date().toISOString(),
+        person_id: personData.id,
+        embedding: embeddingVector,
+      };
+
+      const { data, error } = await supabase
+        .from('service_request')
+        .insert([serviceData])
+        .select();
+
+      if (error) throw error;
+
+      setHelpModalVisible(false);
+      setHelpDescription('');
+      setHelpAddress('');
+      setHelpPayment('');
+      setHelpImageUri(null);
+
+      Alert.alert('¡Éxito!', 'Tu trabajito ha sido publicado');
+
+      // Aquí podrían:
+      // - Activar barra "Buscando a personas interesadas"
+      // - Más adelante, al haber match, setHelpMatchVisible(true) y setServiceInCourseJob(...)
+    } catch (error) {
+      console.error('Error al crear trabajito:', error);
+      Alert.alert('Error', 'No se pudo publicar tu trabajito');
     }
-
-    const { data, error } = await supabase
-      .from('service_request')
-      .insert([serviceData])
-      .select();
-
-    if (error) throw error;
-
-
-    setHelpModalVisible(false);
-    setHelpDescription('');
-    setHelpAddress('');
-    setHelpPayment('');
-    setHelpImageUri(null);
-
-    Alert.alert('¡Éxito!', 'Tu trabajito ha sido publicado');
-
-  } catch (error) {
-    console.error('Error al crear trabajito:', error);
-    Alert.alert('Error', 'No se pudo publicar tu trabajito');
-  }
-};
+  };
 
   const handleCancelSearch = () => {
     if (!helpCancelEnabled) return;
@@ -320,6 +330,37 @@ export default function HomeScreen() {
           </View>
         </View>
       </View>
+
+      {/* BANNER: Servicio en curso (creador) */}
+      {serviceInCourseJob && (
+        <View style={styles.ownerServiceContainer}>
+          <TouchableOpacity
+            style={styles.ownerServiceBanner}
+            activeOpacity={0.9}
+            onPress={() => setServiceDetailVisible(true)}
+          >
+            <View style={styles.ownerServiceLeft}>
+              <View style={styles.ownerServiceBadge}>
+                <Ionicons name="time-outline" size={16} color="#0A3251" />
+                <Text style={styles.ownerServiceBadgeText}>
+                  Servicio en curso
+                </Text>
+              </View>
+              <Text style={styles.ownerServiceTitle} numberOfLines={1}>
+                {serviceInCourseJob.title || 'Tu trabajito está en curso'}
+              </Text>
+              <Text style={styles.ownerServiceMeta} numberOfLines={1}>
+                {serviceInCourseJob.pay || ''}
+                {serviceInCourseJob.pay && serviceInCourseJob.address
+                  ? ' • '
+                  : ''}
+                {serviceInCourseJob.address || ''}
+              </Text>
+            </View>
+            <Ionicons name="chevron-up" size={20} color="#0A3251" />
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Sidebar (Modal) */}
       <Modal
@@ -506,7 +547,84 @@ export default function HomeScreen() {
         </View>
       </Modal>
 
-      {/* MODAL 3: Felicidades encontraste una mano */}
+      {/* MINI MODAL: Detalle de servicio en curso (creador) */}
+      <Modal
+        visible={serviceDetailVisible && !!serviceInCourseJob}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setServiceDetailVisible(false)}
+      >
+        <Pressable
+          style={styles.backdrop}
+          onPress={() => setServiceDetailVisible(false)}
+        />
+        <View style={styles.ownerServiceModalContainer}>
+          <View style={styles.ownerServiceCard}>
+            {serviceInCourseJob && (
+              <>
+                <View style={styles.ownerServiceHeaderRow}>
+                  <View style={styles.ownerServiceBadgeRow}>
+                    <Ionicons name="time-outline" size={18} color="#0A3251" />
+                    <Text style={styles.ownerServiceStatusText}>
+                      Servicio en curso
+                    </Text>
+                  </View>
+                  {serviceInCourseJob.postedAt && (
+                    <Text style={styles.ownerServiceTimeText}>
+                      {serviceInCourseJob.postedAt}
+                    </Text>
+                  )}
+                </View>
+
+                <Text style={styles.ownerServiceTitleModal} numberOfLines={2}>
+                  {serviceInCourseJob.title || 'Tu trabajito está en curso'}
+                </Text>
+
+                <View style={styles.ownerServiceRow}>
+                  <Ionicons name="cash-outline" size={16} color="#6B7A8C" />
+                  <Text style={styles.ownerServiceRowText}>
+                    {serviceInCourseJob.pay || 'Pago no especificado'}
+                  </Text>
+                </View>
+
+                <View style={styles.ownerServiceRow}>
+                  <Ionicons
+                    name="location-outline"
+                    size={16}
+                    color="#6B7A8C"
+                  />
+                  <Text
+                    style={styles.ownerServiceRowText}
+                    numberOfLines={2}
+                  >
+                    {serviceInCourseJob.address || 'Ubicación no especificada'}
+                  </Text>
+                </View>
+
+                {serviceInCourseJob.description && (
+                  <Text
+                    style={styles.ownerServiceDescription}
+                    numberOfLines={4}
+                  >
+                    {serviceInCourseJob.description}
+                  </Text>
+                )}
+
+                <TouchableOpacity
+                  style={[styles.btn, styles.btnPrimary, { marginTop: 10 }]}
+                  onPress={() => setServiceDetailVisible(false)}
+                >
+                  <Text style={[styles.btnText, styles.btnTextPrimary]}>
+                    Cerrar
+                  </Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* MODAL 3: Felicidades hubo match */}
       <Modal
         visible={helpMatchVisible}
         transparent
@@ -515,13 +633,22 @@ export default function HomeScreen() {
       >
         <View style={styles.helpMatchContainer}>
           <View style={styles.helpMatchCard}>
-            <Ionicons name="hand-left" size={42} color="#0A3251" />
-            <Text style={styles.helpMatchTitle}>
-              Felicidades, encontraste una mano
-            </Text>
+            <View style={styles.helpMatchIconCircle}>
+              <Ionicons name="sparkles-outline" size={26} color="#0A3251" />
+            </View>
+            <Text style={styles.helpMatchTitle}>¡Felicidades, hubo match!</Text>
             <Text style={styles.helpMatchSubtitle}>
-              Te contactaremos con la persona interesada en tu trabajito.
+              Alguien aceptó tu trabajito. Pronto podrás coordinar los detalles
+              del servicio.
             </Text>
+            <TouchableOpacity
+              style={[styles.btn, styles.btnPrimary, { marginTop: 10 }]}
+              onPress={() => setHelpMatchVisible(false)}
+            >
+              <Text style={[styles.btnText, styles.btnTextPrimary]}>
+                Entendido
+              </Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -552,7 +679,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     right: 0,
-    bottom: 100, // <--- CAMBIO AQUÍ: Se subió de 24 a 100
+    bottom: 100, // se deja espacio para banners flotantes
     alignItems: 'center',
   },
   card: {
@@ -612,14 +739,14 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   btnPrimary: { backgroundColor: '#0A3251' },
-  btnTextPrimary: { color: '#fff' },
+  btnTextPrimary: { color: '#fff', fontWeight: '700' },
   btnSecondary: {
     backgroundColor: '#F2F5F8',
     borderWidth: 1,
     borderColor: '#C7D1DF',
   },
-  btnTextSecondary: { color: '#0A3251' },
-  btnText: { fontWeight: '700' },
+  btnTextSecondary: { color: '#0A3251', fontWeight: '700' },
+  btnText: { fontWeight: '700', fontSize: 14 },
 
   /* Sidebar */
   backdrop: {
@@ -666,10 +793,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
     padding: 16,
-    maxHeight: '85%', // límite para que entre el scroll
+    maxHeight: '85%',
   },
   helpModalScroll: {
-    paddingBottom: 40, // más espacio al final para la parte de imagen + botón
+    paddingBottom: 40,
   },
   helpModalTitle: {
     fontSize: 18,
@@ -714,7 +841,7 @@ const styles = StyleSheet.create({
   },
   helpSubmitButton: {
     marginTop: 16,
-    width: '100%', 
+    width: '100%',
   },
 
   /* HELP! minimodal 2 */
@@ -773,7 +900,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
-  /* HELP! modal 3 */
+  /* MODAL match */
   helpMatchContainer: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.25)',
@@ -793,6 +920,17 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 6 },
     elevation: 12,
+    width: '100%',
+    maxWidth: 360,
+  },
+  helpMatchIconCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#E3EFFC',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
   },
   helpMatchTitle: {
     fontSize: 17,
@@ -804,5 +942,120 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#6B7A8C',
     textAlign: 'center',
+  },
+
+  /* BANNER: Servicio en curso (creador) */
+  ownerServiceContainer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 24,
+    paddingHorizontal: 16,
+  },
+  ownerServiceBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E6E9EE',
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+  },
+  ownerServiceLeft: {
+    flex: 1,
+    marginRight: 8,
+  },
+  ownerServiceBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: '#E3EFFC',
+    gap: 4,
+    marginBottom: 2,
+  },
+  ownerServiceBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#0A3251',
+  },
+  ownerServiceTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0A3251',
+  },
+  ownerServiceMeta: {
+    fontSize: 12,
+    color: '#6B7A8C',
+    marginTop: 2,
+  },
+
+  /* MINI MODAL: Detalle servicio en curso */
+  ownerServiceModalContainer: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  ownerServiceCard: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 20,
+    shadowColor: '#000',
+    shadowOpacity: 0.16,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: -4 },
+    elevation: 12,
+  },
+  ownerServiceHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  ownerServiceBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  ownerServiceStatusText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0A3251',
+  },
+  ownerServiceTimeText: {
+    fontSize: 11,
+    color: '#9AA4B2',
+  },
+  ownerServiceTitleModal: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0A3251',
+    marginTop: 2,
+  },
+  ownerServiceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 6,
+  },
+  ownerServiceRowText: {
+    fontSize: 13,
+    color: '#4A5A6C',
+    flex: 1,
+  },
+  ownerServiceDescription: {
+    fontSize: 13,
+    color: '#4A5A6C',
+    marginTop: 10,
   },
 });

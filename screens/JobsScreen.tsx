@@ -36,34 +36,36 @@ type Job = {
   person_id?: number;
 };
 
-
-
 export default function JobsScreen() {
   const navigation = useNavigation<Nav>();
   const [user, setUser] = useState<any>(null);
 
   // Estados existentes
-  const [showWelcome, setShowWelcome] = useState(true); // Cambiado a false para no molestar durante desarrollo
+  const [showWelcome, setShowWelcome] = useState(true);
   const [showInterestsModal, setShowInterestsModal] = useState(false);
   const [filtersVisible, setFiltersVisible] = useState(false);
   const [interestsText, setInterestsText] = useState('');
   const [tempInterestsText, setTempInterestsText] = useState(''); // Temporal para el modal
-  const [filterMatchesProfile, setFilterMatchesProfile] = useState(false); // Cambiado a false por defecto
-  const [tempFilterMatchesProfile, setTempFilterMatchesProfile] = useState(false); // Temporal para el modal
+  const [filterMatchesProfile, setFilterMatchesProfile] = useState(false);
+  const [tempFilterMatchesProfile, setTempFilterMatchesProfile] = useState(false);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [jobDetailVisible, setJobDetailVisible] = useState(false);
 
-  // Nuevos estados para la BD
+  // Nuevos estados UI (solo estilos / front)
+  const [matchModalVisible, setMatchModalVisible] = useState(false);
+  const [activeServiceJob, setActiveServiceJob] = useState<Job | null>(null);
+  const [serviceDetailVisible, setServiceDetailVisible] = useState(false);
+
+  // Cargar trabajos desde la base de datos
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Cargar trabajos desde la base de datos
   useEffect(() => {
     loadJobsFromDatabase();
     supabase.auth.getSession().then(({ data }) => {
-        setUser(data.session?.user ?? null);
-        console.log('SESSION', data.session?.user?.user_metadata);
-      });
+      setUser(data.session?.user ?? null);
+      console.log('SESSION', data.session?.user?.user_metadata);
+    });
   }, []);
 
   // Sincronizar estados temporales cuando se abre el modal
@@ -74,11 +76,10 @@ export default function JobsScreen() {
     }
   }, [filtersVisible]);
 
-
   const loadJobsFromDatabase = async () => {
     try {
       setLoading(true);
-      
+
       const { data, error } = await supabase
         .from('service_request')
         .select(`
@@ -100,9 +101,8 @@ export default function JobsScreen() {
         return;
       }
 
-      // Transformar los datos de la BD al formato Job
       const formattedJobs: Job[] = (data || []).map((job) => {
-        const timeAgo = job.datetime 
+        const timeAgo = job.datetime
           ? calculateTimeAgo(new Date(job.datetime))
           : 'Reciente';
 
@@ -114,7 +114,7 @@ export default function JobsScreen() {
           pay: `$${job.proposed_price || 0} MXN`,
           type: 'Trabajo temporal',
           postedAt: timeAgo,
-          matchesProfile: true, // Por ahora todos coinciden
+          matchesProfile: true,
           latitude: job.latitude,
           longitude: job.longitude,
           photos: job.photos,
@@ -131,13 +131,11 @@ export default function JobsScreen() {
     }
   };
 
-  // Función auxiliar para formatear la dirección
   const formatAddress = (lat?: number, lng?: number): string => {
     if (!lat || !lng) return 'Ubicación no especificada';
     return `${lat.toFixed(4)}°, ${lng.toFixed(4)}°`;
   };
 
-  // Función auxiliar para calcular "hace cuánto"
   const calculateTimeAgo = (date: Date): string => {
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
@@ -172,6 +170,12 @@ export default function JobsScreen() {
 
   const handleChooseJob = () => {
     console.log('Trabajo elegido:', selectedJob);
+    // Aquí tus compas pueden:
+    // - Confirmar el match
+    // - Guardar el servicio en "en curso"
+    // - Llamar a:
+    //   setMatchModalVisible(true);
+    //   setActiveServiceJob(selectedJob);
     setJobDetailVisible(false);
   };
 
@@ -182,7 +186,6 @@ export default function JobsScreen() {
     setFiltersVisible(false);
   };
 
-  // Limpiar filtros
   const clearFilters = () => {
     setTempInterestsText('');
     setTempFilterMatchesProfile(false);
@@ -192,46 +195,43 @@ export default function JobsScreen() {
   };
 
   const handleInterestsSave = async () => {
+    const textoParaVectorizar = interestsText.trim();
 
-    //Generación de "embedding" que es la informacion para el match con IA es AQUÍ
-          const textoParaVectorizar = interestsText.trim();
-    
-          console.log("1. Generando embedding...");
-          const { data: embeddingData, error: iaError } =
-            await supabase.functions.invoke("generate_embedding", {
-              body: { text: textoParaVectorizar },
-            });
-    
-          if (iaError) throw iaError;
-          const embeddingVector = embeddingData.embedding;
-    
-          const updateData = {
-            work_prof: interestsText.trim(),
-            embedding: embeddingVector,
-          };
-    
-          console.log("Datos a actualizar:", updateData); // Debug
-    
-          const { error } = await supabase
-            .from("person")
-            .update(updateData)
-            .eq("user_id", user.id);
-    
-          if (error) {
-            console.log("Error al actualizar información:", error);
-            Alert.alert(
-              "Error",
-              "No se pudo guardar la información: " + error.message
-            );
-            return;
-          }
+    console.log('1. Generando embedding...');
+    const { data: embeddingData, error: iaError } =
+      await supabase.functions.invoke('generate_embedding', {
+        body: { text: textoParaVectorizar },
+      });
+
+    if (iaError) throw iaError;
+    const embeddingVector = embeddingData.embedding;
+
+    const updateData = {
+      work_prof: interestsText.trim(),
+      embedding: embeddingVector,
+    };
+
+    console.log('Datos a actualizar:', updateData);
+
+    const { error } = await supabase
+      .from('person')
+      .update(updateData)
+      .eq('user_id', user.id);
+
+    if (error) {
+      console.log('Error al actualizar información:', error);
+      Alert.alert(
+        'Error',
+        'No se pudo guardar la información: ' + error.message
+      );
+      return;
+    }
 
     setShowInterestsModal(false);
-  }
+  };
 
-  // Contar filtros activos
-  const activeFiltersCount = 
-    (interestsText.trim().length > 0 ? 1 : 0) + 
+  const activeFiltersCount =
+    (interestsText.trim().length > 0 ? 1 : 0) +
     (filterMatchesProfile ? 1 : 0);
 
   return (
@@ -252,16 +252,28 @@ export default function JobsScreen() {
       {/* Barra superior: filtros */}
       <View style={styles.topBar}>
         <Text style={styles.topBarText}>
-          {loading 
-            ? 'Cargando...' 
+          {loading
+            ? 'Cargando...'
             : `${filteredJobs.length} de ${jobs.length} empleos`}
         </Text>
         <TouchableOpacity
-          style={[styles.filterBtn, activeFiltersCount > 0 && styles.filterBtnActive]}
+          style={[
+            styles.filterBtn,
+            activeFiltersCount > 0 && styles.filterBtnActive,
+          ]}
           onPress={() => setFiltersVisible(true)}
         >
-          <Ionicons name="options-outline" size={18} color={activeFiltersCount > 0 ? '#FFFFFF' : '#0A3251'} />
-          <Text style={[styles.filterBtnText, activeFiltersCount > 0 && styles.filterBtnTextActive]}>
+          <Ionicons
+            name="options-outline"
+            size={18}
+            color={activeFiltersCount > 0 ? '#FFFFFF' : '#0A3251'}
+          />
+          <Text
+            style={[
+              styles.filterBtnText,
+              activeFiltersCount > 0 && styles.filterBtnTextActive,
+            ]}
+          >
             Filtros {activeFiltersCount > 0 && `(${activeFiltersCount})`}
           </Text>
         </TouchableOpacity>
@@ -276,14 +288,14 @@ export default function JobsScreen() {
       ) : (
         <ScrollView
           style={styles.list}
-          contentContainerStyle={{ paddingBottom: 16 }}
+          contentContainerStyle={{ paddingBottom: 80 }}
         >
           {filteredJobs.length === 0 ? (
             <View style={styles.emptyState}>
               <Ionicons name="briefcase-outline" size={40} color="#C7D1DF" />
               <Text style={styles.emptyTitle}>
-                {jobs.length === 0 
-                  ? 'No hay empleos disponibles' 
+                {jobs.length === 0
+                  ? 'No hay empleos disponibles'
                   : 'No hay empleos con esos filtros'}
               </Text>
               <Text style={styles.emptyText}>
@@ -304,11 +316,17 @@ export default function JobsScreen() {
                   <View
                     style={[
                       styles.matchPill,
-                      job.matchesProfile ? styles.matchPillOn : styles.matchPillOff,
+                      job.matchesProfile
+                        ? styles.matchPillOn
+                        : styles.matchPillOff,
                     ]}
                   >
                     <Ionicons
-                      name={job.matchesProfile ? 'checkmark-circle' : 'alert-circle'}
+                      name={
+                        job.matchesProfile
+                          ? 'checkmark-circle'
+                          : 'alert-circle'
+                      }
                       size={14}
                       color={job.matchesProfile ? '#0A3251' : '#A1A9B5'}
                     />
@@ -318,7 +336,9 @@ export default function JobsScreen() {
                         !job.matchesProfile && styles.matchPillTextOff,
                       ]}
                     >
-                      {job.matchesProfile ? 'Se ajusta a tu perfil' : 'Fuera de perfil'}
+                      {job.matchesProfile
+                        ? 'Se ajusta a tu perfil'
+                        : 'Fuera de perfil'}
                     </Text>
                   </View>
                 </View>
@@ -340,13 +360,44 @@ export default function JobsScreen() {
                   <Text style={styles.jobPostedAt}>{job.postedAt}</Text>
                   <View style={styles.jobActionRight}>
                     <Text style={styles.jobSeeMore}>Ver detalles</Text>
-                    <Ionicons name="chevron-forward" size={18} color="#0A3251" />
+                    <Ionicons
+                      name="chevron-forward"
+                      size={18}
+                      color="#0A3251"
+                    />
                   </View>
                 </View>
               </TouchableOpacity>
             ))
           )}
         </ScrollView>
+      )}
+
+      {/* BANNER: Servicio en curso (flotante) */}
+      {activeServiceJob && (
+        <View style={styles.activeServiceContainer}>
+          <TouchableOpacity
+            style={styles.activeServiceBanner}
+            activeOpacity={0.9}
+            onPress={() => setServiceDetailVisible(true)}
+          >
+            <View style={styles.activeServiceLeft}>
+              <View style={styles.activeServiceBadge}>
+                <Ionicons name="flash-outline" size={16} color="#0A3251" />
+                <Text style={styles.activeServiceBadgeText}>
+                  Servicio en curso
+                </Text>
+              </View>
+              <Text style={styles.activeServiceTitle} numberOfLines={1}>
+                {activeServiceJob.title}
+              </Text>
+              <Text style={styles.activeServiceMeta} numberOfLines={1}>
+                {activeServiceJob.pay} • {activeServiceJob.address}
+              </Text>
+            </View>
+            <Ionicons name="chevron-up" size={20} color="#0A3251" />
+          </TouchableOpacity>
+        </View>
       )}
 
       {/* MODAL: Bienvenida (primera vez) */}
@@ -394,8 +445,8 @@ export default function JobsScreen() {
           <View style={styles.interestsCard}>
             <Text style={styles.interestsTitle}>Tus intereses</Text>
             <Text style={styles.interestsSubtitle}>
-              Cuéntanos en tus propias palabras en qué tipos de trabajos te interesa
-              participar. Más adelante procesaremos este texto con IA.
+              Cuéntanos en tus propias palabras en qué tipos de trabajos te
+              interesa participar. Más adelante procesaremos este texto con IA.
             </Text>
 
             <TextInput
@@ -435,7 +486,8 @@ export default function JobsScreen() {
           <View style={styles.filtersCard}>
             <View style={styles.filtersTitleRow}>
               <Text style={styles.filtersTitle}>Filtros</Text>
-              {(tempInterestsText.trim().length > 0 || tempFilterMatchesProfile) && (
+              {(tempInterestsText.trim().length > 0 ||
+                tempFilterMatchesProfile) && (
                 <TouchableOpacity onPress={clearFilters}>
                   <Text style={styles.clearFiltersText}>Limpiar todo</Text>
                 </TouchableOpacity>
@@ -454,7 +506,8 @@ export default function JobsScreen() {
                 textAlignVertical="top"
               />
               <Text style={styles.filterHint}>
-                Se buscarán empleos que contengan estas palabras en el título o descripción
+                Se buscarán empleos que contengan estas palabras en el título o
+                descripción
               </Text>
             </View>
 
@@ -476,14 +529,15 @@ export default function JobsScreen() {
                   <View
                     style={[
                       styles.profileToggleKnob,
-                      tempFilterMatchesProfile && styles.profileToggleKnobOn,
+                      tempFilterMatchesProfile &&
+                        styles.profileToggleKnobOn,
                     ]}
                   />
                 </TouchableOpacity>
               </View>
               <Text style={styles.profileHint}>
-                Este filtro usará tu perfil profesional más adelante
-                (por ahora todos los trabajos se marcan como compatibles).
+                Este filtro usará tu perfil profesional más adelante (por ahora
+                todos los trabajos se marcan como compatibles).
               </Text>
             </View>
 
@@ -514,12 +568,16 @@ export default function JobsScreen() {
           <View style={styles.jobDetailCard}>
             {selectedJob && (
               <>
-                <Text style={styles.jobDetailTitle}>{selectedJob.title}</Text>
+                <Text style={styles.jobDetailTitle}>
+                  {selectedJob.title}
+                </Text>
                 <Text style={styles.jobDetailType}>{selectedJob.type}</Text>
 
                 <View style={styles.jobDetailRow}>
                   <Text style={styles.jobDetailLabel}>Pago:</Text>
-                  <Text style={styles.jobDetailValue}>{selectedJob.pay}</Text>
+                  <Text style={styles.jobDetailValue}>
+                    {selectedJob.pay}
+                  </Text>
                 </View>
 
                 <View style={styles.jobDetailRow}>
@@ -546,6 +604,116 @@ export default function JobsScreen() {
                 </TouchableOpacity>
               </>
             )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* MINI MODAL: Servicio en curso (detalle desde el banner) */}
+      <Modal
+        visible={serviceDetailVisible && !!activeServiceJob}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setServiceDetailVisible(false)}
+      >
+        <Pressable
+          style={styles.backdrop}
+          onPress={() => setServiceDetailVisible(false)}
+        />
+        <View style={styles.miniServiceModalContainer}>
+          <View style={styles.miniServiceCard}>
+            {activeServiceJob && (
+              <>
+                <View style={styles.miniServiceHeaderRow}>
+                  <View style={styles.miniServiceBadgeRow}>
+                    <Ionicons
+                      name="flash-outline"
+                      size={18}
+                      color="#0A3251"
+                    />
+                    <Text style={styles.miniServiceStatusText}>
+                      Servicio en curso
+                    </Text>
+                  </View>
+                  <Text style={styles.miniServiceTimeText}>
+                    {activeServiceJob.postedAt}
+                  </Text>
+                </View>
+
+                <Text style={styles.miniServiceTitle} numberOfLines={2}>
+                  {activeServiceJob.title}
+                </Text>
+
+                <View style={styles.miniServiceRow}>
+                  <Ionicons
+                    name="cash-outline"
+                    size={16}
+                    color="#6B7A8C"
+                  />
+                  <Text style={styles.miniServiceRowText}>
+                    {activeServiceJob.pay}
+                  </Text>
+                </View>
+
+                <View style={styles.miniServiceRow}>
+                  <Ionicons
+                    name="location-outline"
+                    size={16}
+                    color="#6B7A8C"
+                  />
+                  <Text
+                    style={styles.miniServiceRowText}
+                    numberOfLines={2}
+                  >
+                    {activeServiceJob.address}
+                  </Text>
+                </View>
+
+                <Text
+                  style={styles.miniServiceDescription}
+                  numberOfLines={3}
+                >
+                  {activeServiceJob.description}
+                </Text>
+
+                <TouchableOpacity
+                  style={[styles.btn, styles.btnPrimary, { marginTop: 10 }]}
+                  onPress={() => setServiceDetailVisible(false)}
+                >
+                  <Text style={[styles.btnText, styles.btnTextPrimary]}>
+                    Cerrar
+                  </Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* MINI MODAL: Felicidades hubo match */}
+      <Modal
+        visible={matchModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMatchModalVisible(false)}
+      >
+        <View style={styles.overlayCenter}>
+          <View style={styles.matchCard}>
+            <View style={styles.matchIconCircle}>
+              <Ionicons name="sparkles-outline" size={26} color="#0A3251" />
+            </View>
+            <Text style={styles.matchTitle}>¡Felicidades, hubo match!</Text>
+            <Text style={styles.matchSubtitle}>
+              Ya puedes coordinar los detalles del servicio con la otra
+              persona.
+            </Text>
+            <TouchableOpacity
+              style={[styles.btn, styles.btnPrimary, { marginTop: 10 }]}
+              onPress={() => setMatchModalVisible(false)}
+            >
+              <Text style={[styles.btnText, styles.btnTextPrimary]}>
+                Entendido
+              </Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -745,7 +913,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
-  /* Welcome modal */
+  /* Overlay centrado genérico */
   overlayCenter: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.25)',
@@ -753,6 +921,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 32,
   },
+
+  /* Welcome modal */
   welcomeCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
@@ -779,11 +949,12 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 
-  /* Interests modal */
   backdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.25)',
   },
+
+  /* Interests modal */
   interestsModalContainer: {
     flex: 1,
     justifyContent: 'flex-end',
@@ -968,7 +1139,7 @@ const styles = StyleSheet.create({
     color: '#4A5A6C',
   },
 
-  /* Reusable buttons */
+  /* Botones reutilizables */
   btn: {
     height: 44,
     borderRadius: 12,
@@ -986,5 +1157,157 @@ const styles = StyleSheet.create({
   },
   btnText: {
     fontSize: 14,
+  },
+
+  /* MINI MODAL: Match */
+  matchCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 18,
+    alignItems: 'center',
+    width: '100%',
+    maxWidth: 360,
+    shadowColor: '#000',
+    shadowOpacity: 0.16,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 12,
+  },
+  matchIconCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#E3EFFC',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  matchTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0A3251',
+    textAlign: 'center',
+  },
+  matchSubtitle: {
+    fontSize: 13,
+    color: '#6B7A8C',
+    textAlign: 'center',
+    marginTop: 4,
+  },
+
+  /* BANNER: Servicio en curso */
+  activeServiceContainer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 16,
+    paddingHorizontal: 16,
+  },
+  activeServiceBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E6E9EE',
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+  },
+  activeServiceLeft: {
+    flex: 1,
+    marginRight: 8,
+  },
+  activeServiceBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: '#E3EFFC',
+    gap: 4,
+    marginBottom: 2,
+  },
+  activeServiceBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#0A3251',
+  },
+  activeServiceTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0A3251',
+  },
+  activeServiceMeta: {
+    fontSize: 12,
+    color: '#6B7A8C',
+    marginTop: 2,
+  },
+
+  /* MINI MODAL: Detalle de servicio en curso */
+  miniServiceModalContainer: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  miniServiceCard: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 20,
+    shadowColor: '#000',
+    shadowOpacity: 0.16,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: -4 },
+    elevation: 12,
+  },
+  miniServiceHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  miniServiceBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  miniServiceStatusText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0A3251',
+  },
+  miniServiceTimeText: {
+    fontSize: 11,
+    color: '#9AA4B2',
+  },
+  miniServiceTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0A3251',
+    marginTop: 2,
+  },
+  miniServiceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 6,
+  },
+  miniServiceRowText: {
+    fontSize: 13,
+    color: '#4A5A6C',
+    flex: 1,
+  },
+  miniServiceDescription: {
+    fontSize: 13,
+    color: '#4A5A6C',
+    marginTop: 10,
   },
 });
