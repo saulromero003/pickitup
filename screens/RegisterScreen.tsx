@@ -235,32 +235,26 @@ function BirthdateField({
   );
 }
 
-/* ---------- Pantalla ---------- */
-
 export default function RegisterScreen() {
   const navigation = useNavigation<Nav>();
 
-  // Datos personales
   const [nombre, setNombre] = useState('');
   const [apellidoP, setApellidoP] = useState('');
   const [apellidoM, setApellidoM] = useState('');
   const [birthdate, setBirthdate] = useState<Date | null>(null);
   const [genero, setGenero] = useState<Gender>(null); // sin selección
 
-  // Domicilio
   const [pais, setPais] = useState<string>('');
   const [estado, setEstado] = useState<string>('');
   const [ciudad, setCiudad] = useState('');
   const [colonia, setColonia] = useState('');
   const [calle, setCalle] = useState('');
 
-  // Seguridad
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Opciones
   const paises = ['México', 'Estados Unidos', 'Canadá'];
   const estadosMX = [
     'Aguascalientes','Baja California','Baja California Sur','Campeche','Chiapas','Chihuahua','Ciudad de México',
@@ -270,7 +264,6 @@ export default function RegisterScreen() {
   ];
   const estadosOptions = pais === 'México' ? estadosMX : [];
 
-  /* Utils */
   const isAdult = (d: Date) => {
     const today = new Date();
     let age = today.getFullYear() - d.getFullYear();
@@ -281,7 +274,6 @@ export default function RegisterScreen() {
   const toISODate = (d: Date) => d.toISOString().split('T')[0]; // YYYY-MM-DD
 
   const onSubmit = async () => {
-    // --- VALIDACIONES ---
     if (!email || !password) return Alert.alert('Campos faltantes', 'Correo y contraseña son obligatorios.');
     if (!birthdate) return Alert.alert('Campos faltantes', 'Selecciona tu fecha de nacimiento.');
     if (!isAdult(birthdate)) return Alert.alert('Edad mínima', 'Debes ser mayor de 18 años.');
@@ -293,7 +285,6 @@ export default function RegisterScreen() {
 
     setLoading(true);
     try {
-      // --- NORMALIZACIÓN ---
       const emailNorm = email.trim().toLowerCase();
       const nombreNorm = nombre.trim();
       const apellidoPNorm = apellidoP.trim();
@@ -302,8 +293,6 @@ export default function RegisterScreen() {
       const coloniaNorm = colonia.trim();
       const calleNorm = calle.trim();
 
-      // 1) CREAR USUARIO (Sign Up)
-      // Esto inicia sesión automáticamente si no requiere confirmación de correo
       const { data, error } = await supabase.auth.signUp({
         email: emailNorm,
         password,
@@ -317,8 +306,6 @@ export default function RegisterScreen() {
         return;
       }
 
-      // 2) GUARDAR PERFIL (Upsert)
-      // Aprovechamos que hay sesión activa para guardar los datos
       const { error: upsertError } = await supabase.from('person').upsert({
         user_id: user.id,
         name: nombreNorm,
@@ -338,17 +325,11 @@ export default function RegisterScreen() {
 
       if (upsertError) throw upsertError;
 
-      // 3) CERRAR SESIÓN Y MOSTRAR ALERTA
-      // Cerramos la sesión para "patear" al usuario al Login
-      await supabase.auth.signOut();
-
-      // Alerta simple, sin botón de navegación redundante
-      Alert.alert('¡Cuenta creada!', 'El registro fue exitoso. Ya puedes iniciar sesión.', [
+      Alert.alert('¡Bienvenido!', 'Tu cuenta ha sido creada exitosamente.', [
         { 
-          text: 'OK', 
+          text: 'Comenzar', 
           onPress: () => {
-             // Por seguridad, forzamos la navegación al login por si el signOut no lo hizo
-             navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+             navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
           }
         }
       ]);
