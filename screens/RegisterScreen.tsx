@@ -281,7 +281,7 @@ export default function RegisterScreen() {
   const toISODate = (d: Date) => d.toISOString().split('T')[0]; // YYYY-MM-DD
 
   const onSubmit = async () => {
-    // Validaciones básicas
+    // --- VALIDACIONES ---
     if (!email || !password) return Alert.alert('Campos faltantes', 'Correo y contraseña son obligatorios.');
     if (!birthdate) return Alert.alert('Campos faltantes', 'Selecciona tu fecha de nacimiento.');
     if (!isAdult(birthdate)) return Alert.alert('Edad mínima', 'Debes ser mayor de 18 años.');
@@ -293,18 +293,16 @@ export default function RegisterScreen() {
 
     setLoading(true);
     try {
-      // Normaliza campos
+      // --- NORMALIZACIÓN ---
       const emailNorm = email.trim().toLowerCase();
-
       const nombreNorm = nombre.trim();
       const apellidoPNorm = apellidoP.trim();
       const apellidoMNorm = apellidoM.trim();
-
       const ciudadNorm = ciudad.trim();
       const coloniaNorm = colonia.trim();
       const calleNorm = calle.trim();
 
-      // 1) Sign Up
+      // 1) CREAR USUARIO EN AUTH (Sign Up)
       const { data, error } = await supabase.auth.signUp({
         email: emailNorm,
         password,
@@ -312,8 +310,9 @@ export default function RegisterScreen() {
       if (error) throw error;
 
       const user = data.user;
+      
+      // Caso: Si supabase está configurado para pedir confirmación de correo obligatoria y no devuelve user inmediato
       if (!user) {
-        // Verificación por correo habilitada
         Alert.alert('Registro exitoso', 'Te enviamos un correo para verificar tu cuenta. Ábrelo y vuelve a la app.', [
           {
             text: 'OK',
@@ -325,7 +324,7 @@ export default function RegisterScreen() {
         return;
       }
 
-      // 2) Upsert del perfil en public.person  ⬅️ birthdate agregado
+      // 2) GUARDAR PERFIL EN BASE DE DATOS (Upsert)
       const { error: upsertError } = await supabase.from('person').upsert({
         user_id: user.id,
         name: nombreNorm,
@@ -335,7 +334,7 @@ export default function RegisterScreen() {
           genero === 'masculino' ? 'M' :
           genero === 'femenino' ? 'F' :
           genero === 'otros' ? 'X' : null,
-        birthdate: toISODate(birthdate), // <-- guarda YYYY-MM-DD en columna DATE
+        birthdate: toISODate(birthdate),
         country: pais,
         state: estado,
         city: ciudadNorm,
@@ -345,24 +344,20 @@ export default function RegisterScreen() {
 
       if (upsertError) throw upsertError;
 
-      // 3) ¿Hay sesión activa? Decide navegación segura
-      const { data: sessionData } = await supabase.auth.getSession();
-      const hasSession = !!sessionData.session;
+      // 3) CIERRE DE SESIÓN FORZADO
+      // Cerramos la sesión inmediatamente para evitar que entre al Home automáticamente.
+      await supabase.auth.signOut();
 
-      Alert.alert('Registro exitoso', '¡Tu cuenta fue creada!', [
+      // 4) NOTIFICAR Y REDIRIGIR A LOGIN
+      Alert.alert('Registro exitoso', 'Tu cuenta ha sido creada. Por favor, inicia sesión con tus nuevas credenciales.', [
         {
-          text: 'OK',
+          text: 'Ir al Login',
           onPress: () => {
-            if (hasSession) {
-              // Ya hay sesión -> ir a Home con reset para evitar errores de navegación
-              navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
-            } else {
-              // Sin sesión (p. ej., requiere verificar correo) -> Login
-              navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
-            }
+            navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
           },
         },
       ]);
+
     } catch (e: any) {
       Alert.alert('Error al registrar', e?.message ?? 'Intenta de nuevo.');
     } finally {
