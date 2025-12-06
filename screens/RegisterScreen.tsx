@@ -235,6 +235,7 @@ function BirthdateField({
   );
 }
 
+
 export default function RegisterScreen() {
   const navigation = useNavigation<Nav>();
 
@@ -324,15 +325,6 @@ export default function RegisterScreen() {
       });
 
       if (upsertError) throw upsertError;
-
-      Alert.alert('¡Bienvenido!', 'Tu cuenta ha sido creada exitosamente.', [
-        { 
-          text: 'Comenzar', 
-          onPress: () => {
-             navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
-          }
-        }
-      ]);
 
     } catch (e: any) {
       Alert.alert('Error al registrar', e?.message ?? 'Intenta de nuevo.');
