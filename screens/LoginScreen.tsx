@@ -1,5 +1,16 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Image, Alert, ActivityIndicator } from 'react-native';
+import { 
+  View, 
+  Text, 
+  TextInput, 
+  TouchableOpacity, 
+  StyleSheet, 
+  Image, 
+  Alert, 
+  ActivityIndicator,
+  Keyboard,
+  TouchableWithoutFeedback
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -15,6 +26,8 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
 
   const onSignIn = async () => {
+    Keyboard.dismiss(); 
+
     if (!email || !password) {
       Alert.alert('Campos faltantes', 'Ingresa tu correo y contraseña.');
       return;
@@ -30,7 +43,6 @@ export default function LoginScreen() {
         }
         return;
       }
-      // No navegamos manualmente: App.tsx cambia el stack al detectar la sesión
     } catch (e: any) {
       Alert.alert('Error inesperado', e?.message ?? 'Intenta de nuevo.');
     } finally {
@@ -39,48 +51,50 @@ export default function LoginScreen() {
   };
 
   return (
-    <View style={styles.container}>
-      <Image source={require('../assets/pickitup_logo.png')} style={styles.logo} resizeMode="contain" />
-      <Text style={styles.title}>PickItUp</Text>
-      <Text style={styles.subtitle}>Inicia sesión en tu cuenta</Text>
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+      <View style={styles.container}>
+        <Image source={require('../assets/pickitup_logo.png')} style={styles.logo} resizeMode="contain" />
+        <Text style={styles.title}>PickItUp</Text>
+        <Text style={styles.subtitle}>Inicia sesión en tu cuenta</Text>
 
-      <View style={styles.inputContainer}>
-        <Ionicons name="mail-outline" size={20} color="#0A3251" style={styles.icon} />
-        <TextInput
-          placeholder="Correo:"
-          placeholderTextColor="#0A3251AA"
-          style={styles.input}
-          value={email}
-          onChangeText={setEmail}
-          autoCapitalize="none"
-          keyboardType="email-address"
-          autoCorrect={false}
-        />
+        <View style={styles.inputContainer}>
+          <Ionicons name="mail-outline" size={20} color="#0A3251" style={styles.icon} />
+          <TextInput
+            placeholder="Correo:"
+            placeholderTextColor="#0A3251AA"
+            style={styles.input}
+            value={email}
+            onChangeText={setEmail}
+            autoCapitalize="none"
+            keyboardType="email-address"
+            autoCorrect={false}
+          />
+        </View>
+
+        <View style={styles.inputContainer}>
+          <Ionicons name="key-outline" size={20} color="#0A3251" style={styles.icon} />
+          <TextInput
+            placeholder="Contraseña:"
+            placeholderTextColor="#0A3251AA"
+            style={styles.input}
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+        </View>
+
+        <TouchableOpacity style={[styles.loginButton, loading && { opacity: 0.7 }]} onPress={onSignIn} disabled={loading}>
+          {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.loginButtonText}>Iniciar sesión</Text>}
+        </TouchableOpacity>
+
+        <Text style={styles.registerText}>Si no tienes cuenta regístrate</Text>
+        <TouchableOpacity onPress={() => navigation.navigate('Register')} disabled={loading}>
+          <Text style={styles.registerButton}>Registrarme</Text>
+        </TouchableOpacity>
       </View>
-
-      <View style={styles.inputContainer}>
-        <Ionicons name="key-outline" size={20} color="#0A3251" style={styles.icon} />
-        <TextInput
-          placeholder="Contraseña:"
-          placeholderTextColor="#0A3251AA"
-          style={styles.input}
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
-      </View>
-
-      <TouchableOpacity style={[styles.loginButton, loading && { opacity: 0.7 }]} onPress={onSignIn} disabled={loading}>
-        {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.loginButtonText}>Iniciar sesión</Text>}
-      </TouchableOpacity>
-
-      <Text style={styles.registerText}>Si no tienes cuenta regístrate</Text>
-      <TouchableOpacity onPress={() => navigation.navigate('Register')} disabled={loading}>
-        <Text style={styles.registerButton}>Registrarme</Text>
-      </TouchableOpacity>
-    </View>
+    </TouchableWithoutFeedback>
   );
 }
 
