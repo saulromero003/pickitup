@@ -213,6 +213,7 @@ function BirthdateField({
                   display="spinner"
                   themeVariant="light"
                   textColor="#000000"
+                  locale="es-ES"
                 />
                 <TouchableOpacity style={styles.modalClose} onPress={() => setOpen(false)}>
                   <Text style={styles.modalCloseText}>Listo</Text>
