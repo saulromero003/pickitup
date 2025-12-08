@@ -309,12 +309,40 @@ export default function JobsScreen() {
     setJobDetailVisible(true);
   };
 
-  const handleChooseJob = () => {
+  const handleChooseJob = async () => {
     console.log("Trabajo elegido:", selectedJob);
     // Simular que el match es exitoso
     setJobDetailVisible(false);
+
+    const priceMatch = selectedJob?.pay.match(/\$(\d+)/);
+    const numericPrice = priceMatch ? parseInt(priceMatch[1], 10) : 0;
+
+    const updateData = {
+        state: 'C',// C de en Curso, y el otro será F de finalizado
+        accepted_price: numericPrice,
+        service_request_id: selectedJob?.id,
+        person_worker_id: personId,
+      };
+
+      console.log(`Entrando a chamba para: ${personId}`);
+
+      const { error } = await supabase
+        .from("service")
+        .upsert(updateData)
+        .eq("id", personId);
+
+      if (error) {
+        console.log("Error al actualizar información:", error);
+        Alert.alert(
+          "Error",
+          "No se pudo guardar la información: " + error.message
+        );
+        return;
+      }
+
     setMatchModalVisible(true);
     setActiveServiceJob(selectedJob);
+    console.log("Servicio activo establecido:", selectedJob);
   };
 
   // Aplicar filtros desde el modal
@@ -538,6 +566,10 @@ export default function JobsScreen() {
         </ScrollView>
       )}
 
+
+
+
+
       {/* BANNER: Servicio en curso (flotante) */}
       {activeServiceJob && (
         <View style={styles.activeServiceContainer}>
@@ -564,6 +596,10 @@ export default function JobsScreen() {
           </TouchableOpacity>
         </View>
       )}
+
+
+
+
 
       {/* MODAL: Bienvenida (primera vez) - Se mantiene igual */}
       <Modal

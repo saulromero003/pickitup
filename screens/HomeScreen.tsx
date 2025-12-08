@@ -50,9 +50,13 @@ export default function HomeScreen() {
   // Tus compas pueden setear esto con un objeto similar a "Job" o "service_request"
   const [serviceInCourseJob, setServiceInCourseJob] = useState<any | null>(null);
   const [serviceDetailVisible, setServiceDetailVisible] = useState(false);
+  const [myJobs, setMyJobs] = useState<any[] | null>(null);
+  const [personId, setPersonId] = useState<any | null>(null);
+  // ===== Mapa y trabajos =====
   const [jobMarkers, setJobMarkers] = useState<Array<any>>([]);
   const [selectedJob, setSelectedJob] = useState<any | null>(null);
   const [jobDetailVisible, setJobDetailVisible] = useState(false);
+
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -90,8 +94,96 @@ export default function HomeScreen() {
     }
   };
 
+  const fetchMyJobs = async () => {
+    try {
+      
+      const { data: personData, error: personError } = await supabase
+        .from('person')
+        .select('id')
+        .eq('user_id', user?.id);
+
+      if (personError || !personData) {
+        console.warn('Error fetching person data:', personError);
+        return;
+      }
+
+      console.log('Person data:', personData);
+
+      setPersonId(personData[0]?.id || null);
+      
+      const { data, error } = await supabase
+        .from('service_request')
+        .select('id, name, description, proposed_price, photos, latitude, longitude,person_id')
+        .eq('person_id', personData[0]?.id || null);
+
+      if (error) {
+        console.warn('Error fetching my jobs:', error.message || error);
+        return;
+      }
+
+      const myJobsRecived = (data || []).map((r: any) => ({
+        id: r.id,
+        name: r.name || 'Trabajo',
+        description: r.description || '',
+        latitude: Number(r.latitude),
+        longitude: Number(r.longitude),
+        photos: Array.isArray(r.photos) ? r.photos[0] : r.photos || null,
+        pay: r.proposed_price != null ? `$${r.proposed_price} MXN` : undefined,
+      }));
+
+      setMyJobs(myJobsRecived || []);
+      console.log('My jobs fetched:', myJobsRecived);
+    } catch (err) {
+      console.error('fetchJobMarkers error', err);
+    }
+  };
+
+  const fetchServiceInCourse = async () => {
+    try {
+      console.log('Fetching service in course for personId:', personId);
+
+      const jobIds = myJobs?.map((job) => job.id) || [];
+
+      if (jobIds.length === 0) return;
+
+      const { data: serviceData, error: serviceError } = await supabase
+        .from('service')
+        .select('id, service_request_id')
+        .in('service_request_id', jobIds)
+        .maybeSingle();
+
+      if (serviceError) {
+        console.warn('Error fetching service in course:', serviceError.message || serviceError);
+        return;
+      }
+
+      if (serviceData) {
+        const matchedJob = myJobs?.find((job) => job.id === serviceData.service_request_id);
+        if (matchedJob) {
+          setServiceInCourseJob({
+            id: serviceData.id,
+            title: matchedJob.name,
+            description: matchedJob.description,
+            pay: matchedJob.pay,
+            address: `${matchedJob.latitude.toFixed(4)}°, ${matchedJob.longitude.toFixed(4)}°`,
+            photo: matchedJob.photos,
+          });
+        }
+        console.log('Service in course fetched:', matchedJob);
+      }
+    } catch (err) {
+      console.error('fetchServiceInCourse error', err);
+    }
+  };
+
+
   useEffect(() => {
     fetchJobMarkers();
+  }, []);
+
+  useEffect(() => {
+    fetchMyJobs();
+    fetchServiceInCourse();
   }, []);
 
   const displayName = useMemo(() => {
