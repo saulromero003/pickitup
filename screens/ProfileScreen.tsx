@@ -126,7 +126,7 @@ export default function ProfileScreen() {
       }
 
       if (data) {
-        console.log("Datos cargados:", data); // Debug
+        console.log("Datos cargados"); // Debug
         setName(data.name ?? "");
         setLNamePat(data.l_name_pat ?? "");
         setLNameMat(data.l_name_mat ?? "");
