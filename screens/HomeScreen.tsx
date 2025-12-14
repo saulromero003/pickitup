@@ -27,6 +27,11 @@ import MapViewComponent from '../components/MapViewComponent';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'Home'>;
 
+type WorkerInfo = {
+  name: string;
+  avatarUrl?: string | null;
+};
+
 export default function HomeScreen() {
   const navigation = useNavigation<Nav>();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -46,17 +51,31 @@ export default function HomeScreen() {
   const [helpCancelEnabled, setHelpCancelEnabled] = useState(true);
   const [helpTitle, setHelpTitle] = useState('');
 
-  // ===== Estados nuevos: servicio en curso (creador) =====
-  // Tus compas pueden setear esto con un objeto similar a "Job" o "service_request"
+  // ===== Estados: servicio en curso (creador) =====
   const [serviceInCourseJob, setServiceInCourseJob] = useState<any | null>(null);
   const [serviceDetailVisible, setServiceDetailVisible] = useState(false);
   const [myJobs, setMyJobs] = useState<any[] | null>(null);
   const [personId, setPersonId] = useState<any | null>(null);
+
   // ===== Mapa y trabajos =====
   const [jobMarkers, setJobMarkers] = useState<Array<any>>([]);
   const [selectedJob, setSelectedJob] = useState<any | null>(null);
   const [jobDetailVisible, setJobDetailVisible] = useState(false);
 
+  // ✅ NUEVO: flujo “trabajador finalizó + evidencia”
+  // En backend: tus compas deberían setear esto cuando cambie el servicio a finalizado.
+  const [serviceStage, setServiceStage] = useState<'C' | 'F'>('C'); // C=en curso, F=finalizado
+  const [workerFinishPhotoUri, setWorkerFinishPhotoUri] = useState<string | null>(null);
+
+  // ✅ NUEVO: modal final (calificar + pagar)
+  const [closeoutVisible, setCloseoutVisible] = useState(false);
+  const [workerInfo, setWorkerInfo] = useState<WorkerInfo>({
+    name: 'Trabajador asignado',
+    avatarUrl: null,
+  });
+  const [rating, setRating] = useState<number>(0);
+  const [ratingTried, setRatingTried] = useState(false);
+  const [reviewText, setReviewText] = useState<string>('');
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -96,7 +115,6 @@ export default function HomeScreen() {
 
   const fetchMyJobs = async () => {
     try {
-      
       const { data: personData, error: personError } = await supabase
         .from('person')
         .select('id')
@@ -107,13 +125,11 @@ export default function HomeScreen() {
         return;
       }
 
-      console.log('Person data:', personData);
-
       setPersonId(personData[0]?.id || null);
-      
+
       const { data, error } = await supabase
         .from('service_request')
-        .select('id, name, description, proposed_price, photos, latitude, longitude,person_id')
+        .select('id, name, description, proposed_price, photos, latitude, longitude, person_id')
         .eq('person_id', personData[0]?.id || null);
 
       if (error) {
@@ -132,18 +148,14 @@ export default function HomeScreen() {
       }));
 
       setMyJobs(myJobsRecived || []);
-      console.log('My jobs fetched:', myJobsRecived);
     } catch (err) {
-      console.error('fetchJobMarkers error', err);
+      console.error('fetchMyJobs error', err);
     }
   };
 
   const fetchServiceInCourse = async () => {
     try {
-      console.log('Fetching service in course for personId:', personId);
-
       const jobIds = myJobs?.map((job) => job.id) || [];
-
       if (jobIds.length === 0) return;
 
       const { data: serviceData, error: serviceError } = await supabase
@@ -159,6 +171,7 @@ export default function HomeScreen() {
 
       if (serviceData) {
         const matchedJob = myJobs?.find((job) => job.id === serviceData.service_request_id);
+
         if (matchedJob) {
           setServiceInCourseJob({
             id: serviceData.id,
@@ -168,23 +181,43 @@ export default function HomeScreen() {
             address: `${matchedJob.latitude.toFixed(4)}°, ${matchedJob.longitude.toFixed(4)}°`,
             photo: matchedJob.photos,
           });
+
+          // Placeholder de worker (backend lo setea luego)
+          setWorkerInfo({
+            name: 'Trabajador asignado',
+            avatarUrl: null,
+          });
+
+          // Default UI: en curso
+          setServiceStage('C');
+          setWorkerFinishPhotoUri(null);
+          setRating(0);
+          setReviewText('');
+          setRatingTried(false);
         }
-        console.log('Service in course fetched:', matchedJob);
       }
     } catch (err) {
       console.error('fetchServiceInCourse error', err);
     }
   };
 
-
   useEffect(() => {
     fetchJobMarkers();
   }, []);
 
   useEffect(() => {
-    fetchMyJobs();
-    fetchServiceInCourse();
-  }, []);
+    if (user?.id) {
+      fetchMyJobs();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (myJobs && myJobs.length > 0) {
+      fetchServiceInCourse();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myJobs]);
 
   const displayName = useMemo(() => {
     return (
@@ -195,21 +228,7 @@ export default function HomeScreen() {
     );
   }, [user]);
 
-  const initials = useMemo(() => {
-    const name =
-      user?.user_metadata?.nombre ||
-      user?.user_metadata?.full_name ||
-      '';
-    if (!name) return '👤';
-    const parts = String(name).trim().split(/\s+/);
-    const inits = (parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '');
-    return inits.toUpperCase();
-  }, [user]);
-
-  const avatarUrl =
-    user?.user_metadata?.avatar_url ||
-    user?.user_metadata?.picture ||
-    null;
+  const avatarUrl = user?.user_metadata?.avatar_url || user?.user_metadata?.picture || null;
 
   const onSignOut = async () => {
     try {
@@ -273,6 +292,31 @@ export default function HomeScreen() {
     }
   }, [helpMatchVisible]);
 
+  // ✅ Helper: cerrar TODO antes de abrir modal final (para “liberar el contrato” en UI)
+  const closeAllModals = () => {
+    Keyboard.dismiss();
+    setSidebarOpen(false);
+    setHelpModalVisible(false);
+    setHelpSearchingVisible(false);
+    setHelpMatchVisible(false);
+    setJobDetailVisible(false);
+    setServiceDetailVisible(false);
+  };
+
+  // ✅ Trigger: cuando “el trabajador finaliza + sube foto”
+  // (Tus compas lo conectan a realtime / polling / query del servicio)
+  useEffect(() => {
+    if (!serviceInCourseJob) return;
+
+    const shouldOpenCloseout = serviceStage === 'F' && !!workerFinishPhotoUri;
+
+    if (shouldOpenCloseout) {
+      closeAllModals();
+      setCloseoutVisible(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serviceStage, workerFinishPhotoUri, serviceInCourseJob?.id]);
+
   /* ===== HELP! handlers ===== */
 
   const openHelpModal = () => {
@@ -283,10 +327,7 @@ export default function HomeScreen() {
   const handlePickHelpImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert(
-        'Permiso requerido',
-        'Necesitamos permiso para acceder a tus fotos.'
-      );
+      Alert.alert('Permiso requerido', 'Necesitamos permiso para acceder a tus fotos.');
       return;
     }
 
@@ -318,10 +359,7 @@ export default function HomeScreen() {
         .maybeSingle();
 
       if (personError || !personData) {
-        Alert.alert(
-          'Error',
-          'No se encontró tu perfil. Intenta reiniciar la app.'
-        );
+        Alert.alert('Error', 'No se encontró tu perfil. Intenta reiniciar la app.');
         return;
       }
 
@@ -342,10 +380,9 @@ export default function HomeScreen() {
 
       const paymentNumber = parseFloat(helpPayment.replace(/[^0-9.]/g, ''));
 
-      //Generación de embedding
+      // Generación de embedding
       const textoParaVectorizar = helpDescription.trim();
 
-      console.log('1. Generando embedding...');
       const { data: embeddingData, error: iaError } =
         await supabase.functions.invoke('generate_embedding', {
           body: { text: textoParaVectorizar },
@@ -354,7 +391,7 @@ export default function HomeScreen() {
       if (iaError) throw iaError;
       const embeddingVector = embeddingData.embedding;
 
-      // Intentar obtener la ubicación actual del usuario (si concede permisos)
+      // ubicación actual (opcional)
       let latitude: number | null = null;
       let longitude: number | null = null;
       try {
@@ -363,14 +400,12 @@ export default function HomeScreen() {
           const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
           latitude = loc.coords.latitude;
           longitude = loc.coords.longitude;
-        } else {
-          console.log('Permiso de ubicación denegado por el usuario');
         }
       } catch (locErr) {
         console.warn('Error obteniendo ubicación:', locErr);
       }
 
-      // Si hay una imagen local, intentar subirla a Supabase Storage y usar la URL pública
+      // subir imagen a storage (si hay)
       let photosUrls: string | string[] | null = null;
       if (helpImageUri) {
         try {
@@ -378,13 +413,12 @@ export default function HomeScreen() {
           const response = await fetch(uri);
           const blob = await response.blob();
 
-          // determinar extensión aproximada
           const extMatch = uri.match(/\.([a-zA-Z0-9]+)(?:$|\?)/);
           const ext = extMatch ? extMatch[1] : 'jpg';
           const filename = `job_photos/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
           const bucket = 'job-photos';
 
-          const { data: uploadData, error: uploadError } = await supabase.storage.from(bucket).upload(filename, blob, {
+          const { error: uploadError } = await supabase.storage.from(bucket).upload(filename, blob, {
             contentType: blob.type || `image/${ext}`,
             cacheControl: '3600',
             upsert: false,
@@ -415,31 +449,23 @@ export default function HomeScreen() {
         embedding: embeddingVector,
       };
 
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('service_request')
         .insert([serviceData])
         .select();
 
       if (error) throw error;
 
-      // Refrescar marcadores en el mapa después de crear el trabajito
-      try {
-        await fetchJobMarkers();
-      } catch (e) {
-        console.warn('No se pudieron refrescar los marcadores:', e);
-      }
+      await fetchJobMarkers();
 
       setHelpModalVisible(false);
       setHelpDescription('');
       setHelpAddress('');
       setHelpPayment('');
       setHelpImageUri(null);
+      setHelpTitle('');
 
       Alert.alert('¡Éxito!', 'Tu trabajito ha sido publicado');
-
-      // Aquí podrían:
-      // - Activar barra "Buscando a personas interesadas"
-      // - Más adelante, al haber match, setHelpMatchVisible(true) y setServiceInCourseJob(...)
     } catch (error) {
       console.error('Error al crear trabajito:', error);
       Alert.alert('Error', 'No se pudo publicar tu trabajito');
@@ -452,9 +478,77 @@ export default function HomeScreen() {
   };
 
   const handleChooseJob = () => {
-    // Acción cuando el usuario elige el trabajo desde el modal del mapa
     console.log('Trabajo elegido desde mapa:', selectedJob);
     setJobDetailVisible(false);
+  };
+
+  // ✅ UI only: simular que el trabajador ya finalizó y subió foto
+  // (Esto desaparece en prod porque __DEV__ = false)
+  const mockReceiveWorkerFinish = () => {
+    if (!serviceInCourseJob) return;
+    setServiceStage('F');
+    // usa la foto del job como “evidencia” si existe, si no, null (para que veas el caso)
+    setWorkerFinishPhotoUri(serviceInCourseJob.photo ?? null);
+
+    // demo: setear worker info “realista”
+    setWorkerInfo({
+      name: 'Kevin Worker',
+      avatarUrl: null,
+    });
+  };
+
+  const openCloseoutFromBanner = () => {
+    if (serviceStage === 'F' && workerFinishPhotoUri) {
+      closeAllModals();
+      setCloseoutVisible(true);
+      return;
+    }
+    setServiceDetailVisible(true);
+  };
+
+  const renderRatingStars = (value: number) => {
+    return (
+      <View style={styles.ratingStarsRow}>
+        {Array.from({ length: 5 }).map((_, idx) => {
+          const starValue = idx + 1;
+          const filled = starValue <= value;
+          return (
+            <TouchableOpacity
+              key={starValue}
+              onPress={() => setRating(starValue)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              style={styles.starTap}
+              activeOpacity={0.8}
+            >
+              <Ionicons
+                name={filled ? 'star' : 'star-outline'}
+                size={22}
+                color="#0A3251"
+              />
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    );
+  };
+
+  const handlePayUIOnly = () => {
+    setRatingTried(true);
+    if (rating <= 0) return;
+
+    // Simular pago + liberar contrato
+    Alert.alert('Pago simulado', 'Se pagó con la tarjeta predeterminada ✅');
+
+    setCloseoutVisible(false);
+    closeAllModals();
+
+    // limpiar “contrato”
+    setServiceInCourseJob(null);
+    setServiceStage('C');
+    setWorkerFinishPhotoUri(null);
+    setRating(0);
+    setReviewText('');
+    setRatingTried(false);
   };
 
   return (
@@ -485,7 +579,10 @@ export default function HomeScreen() {
               id: m.id,
               title: m.title,
               description: m.description,
-              address: m.latitude && m.longitude ? `${m.latitude.toFixed(4)}°, ${m.longitude.toFixed(4)}°` : 'Ubicación no especificada',
+              address:
+                m.latitude && m.longitude
+                  ? `${m.latitude.toFixed(4)}°, ${m.longitude.toFixed(4)}°`
+                  : 'Ubicación no especificada',
               pay: m.pay,
               photo: m.photo ?? null,
               type: 'Trabajo temporal',
@@ -515,16 +612,12 @@ export default function HomeScreen() {
             )}
           </View>
 
-          {/* Nombre del usuario */}
           <Text style={styles.displayName} numberOfLines={1}>
             {displayName}
           </Text>
 
           <View style={styles.actions}>
-            <TouchableOpacity
-              style={[styles.btn, styles.btnPrimary]}
-              onPress={openHelpModal}
-            >
+            <TouchableOpacity style={[styles.btn, styles.btnPrimary]} onPress={openHelpModal}>
               <Ionicons name="alert-circle" size={18} color="#fff" />
               <Text style={[styles.btnText, styles.btnTextPrimary]}>Help!</Text>
             </TouchableOpacity>
@@ -534,9 +627,7 @@ export default function HomeScreen() {
               onPress={() => navigation.navigate('Jobs')}
             >
               <Ionicons name="briefcase" size={18} color="#0A3251" />
-              <Text style={[styles.btnText, styles.btnTextSecondary]}>
-                Trabajemos!
-              </Text>
+              <Text style={[styles.btnText, styles.btnTextSecondary]}>Trabajemos!</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -546,15 +637,27 @@ export default function HomeScreen() {
       {serviceInCourseJob && (
         <View style={styles.ownerServiceContainer}>
           <TouchableOpacity
-            style={styles.ownerServiceBanner}
+            style={[
+              styles.ownerServiceBanner,
+              serviceStage === 'F' && styles.ownerServiceBannerDone,
+            ]}
             activeOpacity={0.9}
-            onPress={() => setServiceDetailVisible(true)}
+            onPress={openCloseoutFromBanner}
           >
             <View style={styles.ownerServiceLeft}>
-              <View style={styles.ownerServiceBadge}>
-                <Ionicons name="time-outline" size={16} color="#0A3251" />
+              <View
+                style={[
+                  styles.ownerServiceBadge,
+                  serviceStage === 'F' && styles.ownerServiceBadgeDone,
+                ]}
+              >
+                <Ionicons
+                  name={serviceStage === 'F' ? 'checkmark-circle-outline' : 'time-outline'}
+                  size={16}
+                  color="#0A3251"
+                />
                 <Text style={styles.ownerServiceBadgeText}>
-                  Servicio en curso
+                  {serviceStage === 'F' ? 'Servicio finalizado' : 'Servicio en curso'}
                 </Text>
               </View>
               <Text style={styles.ownerServiceTitle} numberOfLines={1}>
@@ -562,9 +665,7 @@ export default function HomeScreen() {
               </Text>
               <Text style={styles.ownerServiceMeta} numberOfLines={1}>
                 {serviceInCourseJob.pay || ''}
-                {serviceInCourseJob.pay && serviceInCourseJob.address
-                  ? ' • '
-                  : ''}
+                {serviceInCourseJob.pay && serviceInCourseJob.address ? ' • ' : ''}
                 {serviceInCourseJob.address || ''}
               </Text>
             </View>
@@ -618,7 +719,6 @@ export default function HomeScreen() {
           style={styles.helpModalContainer}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          {/* Fondo oscuro clickeable */}
           <Pressable
             style={styles.backdrop}
             onPress={() => {
@@ -627,7 +727,6 @@ export default function HomeScreen() {
             }}
           />
 
-          {/* Tarjeta del formulario */}
           <View style={styles.helpModalCard}>
             <ScrollView
               contentContainerStyle={styles.helpModalScroll}
@@ -682,11 +781,7 @@ export default function HomeScreen() {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.helpLabel}>Imagen del trabajo (opcional)</Text>
                   <TouchableOpacity
-                    style={[
-                      styles.btn,
-                      styles.btnSecondary,
-                      { justifyContent: 'flex-start' },
-                    ]}
+                    style={[styles.btn, styles.btnSecondary, { justifyContent: 'flex-start' }]}
                     onPress={handlePickHelpImage}
                   >
                     <Ionicons name="image" size={18} color="#0A3251" />
@@ -700,15 +795,12 @@ export default function HomeScreen() {
                 )}
               </View>
 
-              {/* Botón dentro del scroll */}
               <TouchableOpacity
                 style={[styles.btn, styles.btnPrimary, styles.helpSubmitButton]}
                 onPress={handleSubmitHelp}
               >
                 <Ionicons name="cloud-upload" size={18} color="#fff" />
-                <Text style={[styles.btnText, styles.btnTextPrimary]}>
-                  Subir trabajito
-                </Text>
+                <Text style={[styles.btnText, styles.btnTextPrimary]}>Subir trabajito</Text>
               </TouchableOpacity>
             </ScrollView>
           </View>
@@ -725,9 +817,7 @@ export default function HomeScreen() {
         <View style={styles.helpSearchingContainer}>
           <View style={styles.helpSearchingBar}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.helpSearchingTitle}>
-                Buscando a personas interesadas
-              </Text>
+              <Text style={styles.helpSearchingTitle}>Buscando a personas interesadas</Text>
               <Text style={styles.helpSearchingAddress} numberOfLines={1}>
                 {helpAddress || 'Sin domicilio especificado'}
               </Text>
@@ -758,17 +848,14 @@ export default function HomeScreen() {
         </View>
       </Modal>
 
-      {/* MODAL: Detalle del empleo (igual que JobsScreen) */}
+      {/* MODAL: Detalle del empleo (mapa) */}
       <Modal
         visible={jobDetailVisible && !!selectedJob}
         transparent
         animationType="slide"
         onRequestClose={() => setJobDetailVisible(false)}
       >
-        <Pressable
-          style={styles.backdrop}
-          onPress={() => setJobDetailVisible(false)}
-        />
+        <Pressable style={styles.backdrop} onPress={() => setJobDetailVisible(false)} />
         <View style={styles.jobDetailContainer}>
           <View style={styles.jobDetailCard}>
             {selectedJob && (
@@ -789,9 +876,9 @@ export default function HomeScreen() {
                 <Text style={styles.jobDetailSectionTitle}>Descripción</Text>
                 <Text style={styles.jobDetailDescription}>{selectedJob.description}</Text>
 
-                  {selectedJob.photo ? (
-                    <Image source={{ uri: selectedJob.photo }} style={styles.jobDetailImage} />
-                  ) : null}
+                {selectedJob.photo ? (
+                  <Image source={{ uri: selectedJob.photo }} style={styles.jobDetailImage} />
+                ) : null}
 
                 <TouchableOpacity
                   style={[styles.btn, styles.btnPrimary, { marginTop: 12 }]}
@@ -812,30 +899,26 @@ export default function HomeScreen() {
         animationType="slide"
         onRequestClose={() => setServiceDetailVisible(false)}
       >
-        <Pressable
-          style={styles.backdrop}
-          onPress={() => setServiceDetailVisible(false)}
-        />
+        <Pressable style={styles.backdrop} onPress={() => setServiceDetailVisible(false)} />
         <View style={styles.ownerServiceModalContainer}>
           <View style={styles.ownerServiceCard}>
             {serviceInCourseJob && (
               <>
                 <View style={styles.ownerServiceHeaderRow}>
                   <View style={styles.ownerServiceBadgeRow}>
-                    <Ionicons name="time-outline" size={18} color="#0A3251" />
+                    <Ionicons
+                      name={serviceStage === 'F' ? 'checkmark-circle-outline' : 'time-outline'}
+                      size={18}
+                      color="#0A3251"
+                    />
                     <Text style={styles.ownerServiceStatusText}>
-                      Servicio en curso
+                      {serviceStage === 'F' ? 'Servicio finalizado' : 'Servicio en curso'}
                     </Text>
                   </View>
-                  {serviceInCourseJob.postedAt && (
-                    <Text style={styles.ownerServiceTimeText}>
-                      {serviceInCourseJob.postedAt}
-                    </Text>
-                  )}
                 </View>
 
                 <Text style={styles.ownerServiceTitleModal} numberOfLines={2}>
-                  {serviceInCourseJob.title || 'Tu trabajito está en curso'}
+                  {serviceInCourseJob.title || 'Tu trabajito'}
                 </Text>
 
                 <View style={styles.ownerServiceRow}>
@@ -846,35 +929,59 @@ export default function HomeScreen() {
                 </View>
 
                 <View style={styles.ownerServiceRow}>
-                  <Ionicons
-                    name="location-outline"
-                    size={16}
-                    color="#6B7A8C"
-                  />
-                  <Text
-                    style={styles.ownerServiceRowText}
-                    numberOfLines={2}
-                  >
+                  <Ionicons name="location-outline" size={16} color="#6B7A8C" />
+                  <Text style={styles.ownerServiceRowText} numberOfLines={2}>
                     {serviceInCourseJob.address || 'Ubicación no especificada'}
                   </Text>
                 </View>
 
-                {serviceInCourseJob.description && (
-                  <Text
-                    style={styles.ownerServiceDescription}
-                    numberOfLines={4}
-                  >
+                {serviceInCourseJob.description ? (
+                  <Text style={styles.ownerServiceDescription} numberOfLines={4}>
                     {serviceInCourseJob.description}
                   </Text>
+                ) : null}
+
+                {/* ✅ Si ya finalizó, mostrar evidencia */}
+                {serviceStage === 'F' && workerFinishPhotoUri ? (
+                  <>
+                    <Text style={styles.sectionTitle}>Evidencia del trabajador</Text>
+                    <Image source={{ uri: workerFinishPhotoUri }} style={styles.evidenceImg} />
+                    <TouchableOpacity
+                      style={[styles.btn, styles.btnPrimary, { marginTop: 10 }]}
+                      onPress={() => {
+                        closeAllModals();
+                        setCloseoutVisible(true);
+                      }}
+                    >
+                      <Text style={[styles.btnText, styles.btnTextPrimary]}>
+                        Calificar y pagar
+                      </Text>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <Text style={styles.ownerServiceHint}>
+                    Esperando que el trabajador finalice y suba la evidencia…
+                  </Text>
+                )}
+
+                {/* DEV ONLY: simular entrega */}
+                {__DEV__ && serviceStage !== 'F' && (
+                  <TouchableOpacity
+                    style={[styles.btn, styles.btnSecondary, { marginTop: 10 }]}
+                    onPress={mockReceiveWorkerFinish}
+                  >
+                    <Ionicons name="bug-outline" size={18} color="#0A3251" />
+                    <Text style={[styles.btnText, styles.btnTextSecondary]}>
+                      Simular entrega (DEV)
+                    </Text>
+                  </TouchableOpacity>
                 )}
 
                 <TouchableOpacity
                   style={[styles.btn, styles.btnPrimary, { marginTop: 10 }]}
                   onPress={() => setServiceDetailVisible(false)}
                 >
-                  <Text style={[styles.btnText, styles.btnTextPrimary]}>
-                    Cerrar
-                  </Text>
+                  <Text style={[styles.btnText, styles.btnTextPrimary]}>Cerrar</Text>
                 </TouchableOpacity>
               </>
             )}
@@ -896,16 +1003,106 @@ export default function HomeScreen() {
             </View>
             <Text style={styles.helpMatchTitle}>¡Felicidades, hubo match!</Text>
             <Text style={styles.helpMatchSubtitle}>
-              Alguien aceptó tu trabajito. Pronto podrás coordinar los detalles
-              del servicio.
+              Alguien aceptó tu trabajito. Pronto podrás coordinar los detalles del servicio.
             </Text>
             <TouchableOpacity
               style={[styles.btn, styles.btnPrimary, { marginTop: 10 }]}
               onPress={() => setHelpMatchVisible(false)}
             >
-              <Text style={[styles.btnText, styles.btnTextPrimary]}>
-                Entendido
+              <Text style={[styles.btnText, styles.btnTextPrimary]}>Entendido</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ✅ MODAL FINAL: Calificar trabajador + Pagar (simulado) */}
+      <Modal
+        visible={closeoutVisible && !!serviceInCourseJob}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCloseoutVisible(false)}
+      >
+        <View style={styles.overlayCenter}>
+          <View style={styles.closeoutCard}>
+            <View style={styles.closeoutTop}>
+              <View style={styles.closeoutIconCircle}>
+                <Ionicons name="receipt-outline" size={24} color="#0A3251" />
+              </View>
+              <Text style={styles.closeoutTitle}>Cierre del servicio</Text>
+              <Text style={styles.closeoutSub}>
+                El trabajador marcó como finalizado. Califica y paga para liberar el contrato.
               </Text>
+            </View>
+
+            <View style={styles.closeoutBox}>
+              <Text style={styles.closeoutJobTitle} numberOfLines={1}>
+                {serviceInCourseJob?.title || 'Trabajito'}
+              </Text>
+
+              <View style={styles.closeoutRow}>
+                <Ionicons name="cash-outline" size={16} color="#6B7A8C" />
+                <Text style={styles.closeoutRowLabel}>Total:</Text>
+                <Text style={styles.closeoutRowValue}>{serviceInCourseJob?.pay || '$—'}</Text>
+              </View>
+
+              {workerFinishPhotoUri ? (
+                <View style={styles.closeoutEvidenceRow}>
+                  <Image source={{ uri: workerFinishPhotoUri }} style={styles.closeoutEvidenceImg} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.closeoutEvidenceTitle}>Evidencia</Text>
+                    <Text style={styles.closeoutEvidenceSub}>Foto entregada por el trabajador</Text>
+                  </View>
+                  <Ionicons name="checkmark-circle" size={18} color="#0A3251" />
+                </View>
+              ) : null}
+
+              <View style={styles.workerCard}>
+                <View style={styles.workerAvatar}>
+                  {workerInfo.avatarUrl ? (
+                    <Image source={{ uri: workerInfo.avatarUrl }} style={styles.workerAvatarImg} />
+                  ) : (
+                    <Ionicons name="person" size={18} color="#0A3251" />
+                  )}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.workerName}>{workerInfo.name}</Text>
+                  <Text style={styles.workerHint}>Trabajador</Text>
+                </View>
+              </View>
+
+              <Text style={styles.sectionTitle}>Califica al trabajador</Text>
+              {renderRatingStars(rating)}
+              {ratingTried && rating <= 0 ? (
+                <Text style={styles.errorText}>La calificación es obligatoria para pagar.</Text>
+              ) : null}
+
+              <Text style={[styles.sectionTitle, { marginTop: 10 }]}>Comentario (opcional)</Text>
+              <TextInput
+                style={styles.reviewInput}
+                placeholder="Ej. Puntual, limpio, buena comunicación…"
+                placeholderTextColor="#8FA1B3"
+                value={reviewText}
+                onChangeText={setReviewText}
+                multiline
+                textAlignVertical="top"
+              />
+            </View>
+
+            <TouchableOpacity
+              style={[styles.btn, styles.btnPrimary, { width: '100%', marginTop: 10 }]}
+              onPress={handlePayUIOnly}
+            >
+              <Ionicons name="card-outline" size={18} color="#fff" />
+              <Text style={[styles.btnText, styles.btnTextPrimary]}>
+                Pagar con la tarjeta predeterminada
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.btn, styles.btnSecondary, { width: '100%', marginTop: 8 }]}
+              onPress={() => setCloseoutVisible(false)}
+            >
+              <Text style={[styles.btnText, styles.btnTextSecondary]}>Cerrar</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -937,7 +1134,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     right: 0,
-    bottom: 100, // se deja espacio para banners flotantes
+    bottom: 100,
     alignItems: 'center',
   },
   card: {
@@ -975,7 +1172,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#D7ECFF',
   },
-  avatarText: { fontWeight: '700', color: '#0A3251' },
 
   displayName: {
     marginTop: 8,
@@ -1225,6 +1421,10 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     elevation: 6,
   },
+  ownerServiceBannerDone: {
+    borderColor: '#C7D1DF',
+    backgroundColor: '#F8FAFC',
+  },
   ownerServiceLeft: {
     flex: 1,
     marginRight: 8,
@@ -1239,6 +1439,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#E3EFFC',
     gap: 4,
     marginBottom: 2,
+  },
+  ownerServiceBadgeDone: {
+    backgroundColor: '#EAF6F0',
   },
   ownerServiceBadgeText: {
     fontSize: 11,
@@ -1290,10 +1493,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#0A3251',
   },
-  ownerServiceTimeText: {
-    fontSize: 11,
-    color: '#9AA4B2',
-  },
   ownerServiceTitleModal: {
     fontSize: 15,
     fontWeight: '700',
@@ -1316,6 +1515,26 @@ const styles = StyleSheet.create({
     color: '#4A5A6C',
     marginTop: 10,
   },
+  ownerServiceHint: {
+    marginTop: 10,
+    fontSize: 12,
+    color: '#6B7A8C',
+  },
+
+  sectionTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0A3251',
+    marginTop: 12,
+    marginBottom: 6,
+  },
+  evidenceImg: {
+    width: '100%',
+    height: 180,
+    borderRadius: 12,
+    backgroundColor: '#E1E8F0',
+  },
+
   /* Job detail modal styles */
   jobDetailContainer: {
     flex: 1,
@@ -1376,5 +1595,173 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginTop: 10,
     backgroundColor: '#E1E8F0',
+  },
+
+  /* ✅ Modal final */
+  overlayCenter: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+  },
+  closeoutCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    width: '100%',
+    maxWidth: 420,
+    shadowColor: '#000',
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 12,
+  },
+  closeoutTop: {
+    alignItems: 'center',
+  },
+  closeoutIconCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#E3EFFC',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  closeoutTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0A3251',
+    textAlign: 'center',
+  },
+  closeoutSub: {
+    fontSize: 12,
+    color: '#6B7A8C',
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  closeoutBox: {
+    marginTop: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E6E9EE',
+    backgroundColor: '#F8FAFC',
+    padding: 12,
+  },
+  closeoutJobTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0A3251',
+    marginBottom: 6,
+  },
+  closeoutRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  closeoutRowLabel: {
+    fontSize: 12,
+    color: '#6B7A8C',
+    fontWeight: '700',
+  },
+  closeoutRowValue: {
+    marginLeft: 'auto',
+    fontSize: 12,
+    color: '#0A3251',
+    fontWeight: '800',
+  },
+  closeoutEvidenceRow: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E6E9EE',
+    padding: 10,
+  },
+  closeoutEvidenceImg: {
+    width: 46,
+    height: 46,
+    borderRadius: 10,
+    backgroundColor: '#E1E8F0',
+  },
+  closeoutEvidenceTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#0A3251',
+  },
+  closeoutEvidenceSub: {
+    fontSize: 11,
+    color: '#6B7A8C',
+    marginTop: 2,
+  },
+
+  workerCard: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E6E9EE',
+    padding: 10,
+  },
+  workerAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#E3EFFC',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  workerAvatarImg: {
+    width: '100%',
+    height: '100%',
+  },
+  workerName: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#0A3251',
+  },
+  workerHint: {
+    fontSize: 11,
+    color: '#6B7A8C',
+    marginTop: 2,
+  },
+
+  ratingStarsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    marginTop: 4,
+  },
+  starTap: {
+    paddingVertical: 4,
+    paddingHorizontal: 2,
+  },
+  errorText: {
+    marginTop: 6,
+    fontSize: 12,
+    color: '#E63946',
+    fontWeight: '800',
+  },
+
+  reviewInput: {
+    marginTop: 6,
+    minHeight: 74,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#C7D1DF',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: '#FFFFFF',
+    fontSize: 13,
+    color: '#0A3251',
   },
 });
