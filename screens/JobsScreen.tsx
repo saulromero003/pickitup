@@ -18,6 +18,7 @@ import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../types/navigation";
 import { supabase } from "../lib/supabase";
+import * as ImagePicker from "expo-image-picker";
 
 type Nav = NativeStackNavigationProp<RootStackParamList, "Jobs">;
 
@@ -63,6 +64,20 @@ export default function JobsScreen() {
   const [matchModalVisible, setMatchModalVisible] = useState(false);
   const [activeServiceJob, setActiveServiceJob] = useState<Job | null>(null);
   const [serviceDetailVisible, setServiceDetailVisible] = useState(false);
+
+  // ✅ NUEVOS: flujo de finalización (UI ONLY)
+  const [finishModalVisible, setFinishModalVisible] = useState(false);
+  const [finishPhotoUri, setFinishPhotoUri] = useState<string | null>(null);
+  const [finishTriedSubmit, setFinishTriedSubmit] = useState(false);
+
+  // ✅ NUEVO: modal final de pago + calificación (UI ONLY)
+  const [finishSummaryVisible, setFinishSummaryVisible] = useState(false);
+
+  // Datos demo del cliente (UI only)
+  const [clientRating] = useState<number>(5);
+  const [clientReviewText] = useState<string>(
+    "Excelente trabajo, todo quedó perfecto. ¡Gracias!"
+  );
 
   // Cargar trabajos desde la base de datos
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -130,11 +145,10 @@ export default function JobsScreen() {
         }
 
         const jobsToDisplay: Job[] = (matchedServices || [])
-          // Se recomienda limitar el número de resultados para no abrumar
           .slice(0, 50)
           .map(
             (match: {
-              id: number | null; // El ID ya no debería ser null/undefined si la RPC es correcta
+              id: number | null;
               name: string;
               description: string;
               proposed_price: number;
@@ -143,18 +157,15 @@ export default function JobsScreen() {
               longitude: number | null;
               datetime: string | null;
               person_id: number | null;
-              distancia: number; // Distancia del vector (0 = match perfecto)
+              distancia: number;
             }) => {
-              // Cálculo del porcentaje de Match
               const matchPercentage = (1 - match.distancia) * 100;
 
-              // 💡 Se utiliza el encadenamiento opcional para la seguridad de datos nulos
               const lat = match.latitude ?? undefined;
               const lng = match.longitude ?? undefined;
               const dt = match.datetime ?? undefined;
 
               return {
-                // El ID se convierte a string de forma segura
                 id:
                   match.id !== null && match.id !== undefined
                     ? match.id.toString()
@@ -163,9 +174,9 @@ export default function JobsScreen() {
                 description: match.description || "Sin descripción disponible.",
                 address: formatAddress(lat, lng),
                 pay: `$${match.proposed_price?.toFixed(0) || "???"} MXN`,
-                type: "Recomendado por IA", // Etiqueta específica para IA
-                postedAt: `${matchPercentage.toFixed(0)}% Match`, // Usar el porcentaje como 'postedAt'
-                matchesProfile: true, // Marcamos como match
+                type: "Recomendado por IA",
+                postedAt: `${matchPercentage.toFixed(0)}% Match`,
+                matchesProfile: true,
                 latitude: lat,
                 longitude: lng,
                 photos: match.photos ?? undefined,
@@ -221,26 +232,17 @@ export default function JobsScreen() {
         pay: `$${job.proposed_price || 0} MXN`,
         type: "Trabajo temporal",
         postedAt: timeAgo,
-        matchesProfile: false, // Por defecto es false
+        matchesProfile: false,
         latitude: job.latitude,
         longitude: job.longitude,
-        photos: job.photos, // Puede ser string o array de strings
+        photos: job.photos,
         datetime: job.datetime,
         person_id: job.person_id,
-        distanceMatch: undefined, // No aplica para carga normal
+        distanceMatch: undefined,
       };
     });
     return formattedJobs;
   };
-
-  // ... (El resto de las funciones: loadPersonData, formatAddress, calculateTimeAgo, filteredJobs, openJobDetail, handleChooseJob, applyFilters, clearFilters, handleInterestsSave) ...
-  // *NOTA: Estas funciones no requieren cambios LÓGICOS en esta iteración.
-
-  // =========================================================================
-  // El resto del código de JobsScreen (Lógica de UI, Modals, Handlers)
-  // SE MANTIENE IGUAL, ya que el componente React está diseñado para manejar
-  // cualquier objeto que cumpla con el tipo 'Job'.
-  // =========================================================================
 
   const loadPersonData = async (userId: string) => {
     try {
@@ -294,13 +296,9 @@ export default function JobsScreen() {
 
   // Filtrar trabajos
   const filteredJobs = jobs.filter((job) => {
-    // Solo aplica el filtro si el switch de IA está activo
     if (filterMatchesProfile) {
-      // Solo se muestran los trabajos que fueron marcados como match por la RPC
       return job.matchesProfile;
     }
-
-    // Si el filtro de IA está desactivado, mostramos TODOS los trabajos cargados
     return true;
   });
 
@@ -311,34 +309,30 @@ export default function JobsScreen() {
 
   const handleChooseJob = async () => {
     console.log("Trabajo elegido:", selectedJob);
-    // Simular que el match es exitoso
     setJobDetailVisible(false);
 
     const priceMatch = selectedJob?.pay.match(/\$(\d+)/);
     const numericPrice = priceMatch ? parseInt(priceMatch[1], 10) : 0;
 
     const updateData = {
-        state: 'C',// C de en Curso, y el otro será F de finalizado
-        accepted_price: numericPrice,
-        service_request_id: selectedJob?.id,
-        person_worker_id: personId,
-      };
+      state: "C", // C de en Curso, y el otro será F de finalizado
+      accepted_price: numericPrice,
+      service_request_id: selectedJob?.id,
+      person_worker_id: personId,
+    };
 
-      console.log(`Entrando a chamba para: ${personId}`);
+    console.log(`Entrando a chamba para: ${personId}`);
 
-      const { error } = await supabase
-        .from("service")
-        .upsert(updateData)
-        .eq("id", personId);
+    const { error } = await supabase
+      .from("service")
+      .upsert(updateData)
+      .eq("id", personId);
 
-      if (error) {
-        console.log("Error al actualizar información:", error);
-        Alert.alert(
-          "Error",
-          "No se pudo guardar la información: " + error.message
-        );
-        return;
-      }
+    if (error) {
+      console.log("Error al actualizar información:", error);
+      Alert.alert("Error", "No se pudo guardar la información: " + error.message);
+      return;
+    }
 
     setMatchModalVisible(true);
     setActiveServiceJob(selectedJob);
@@ -359,10 +353,7 @@ export default function JobsScreen() {
 
   const handleInterestsSave = async () => {
     if (!user || !user.id || personId === null) {
-      Alert.alert(
-        "Error",
-        "Debes iniciar sesión y tener un perfil de trabajador."
-      );
+      Alert.alert("Error", "Debes iniciar sesión y tener un perfil de trabajador.");
       return;
     }
 
@@ -376,10 +367,7 @@ export default function JobsScreen() {
         });
 
       if (iaError) {
-        Alert.alert(
-          "Error IA",
-          "Fallo al vectorizar tu perfil. " + iaError.message
-        );
+        Alert.alert("Error IA", "Fallo al vectorizar tu perfil. " + iaError.message);
         throw iaError;
       }
 
@@ -392,17 +380,11 @@ export default function JobsScreen() {
 
       console.log(`Actualizando perfil de persona ID: ${personId}`);
 
-      const { error } = await supabase
-        .from("person")
-        .update(updateData)
-        .eq("id", personId);
+      const { error } = await supabase.from("person").update(updateData).eq("id", personId);
 
       if (error) {
         console.log("Error al actualizar información:", error);
-        Alert.alert(
-          "Error",
-          "No se pudo guardar la información: " + error.message
-        );
+        Alert.alert("Error", "No se pudo guardar la información: " + error.message);
         return;
       }
 
@@ -412,13 +394,86 @@ export default function JobsScreen() {
       }
 
       setShowInterestsModal(false);
-      Alert.alert(
-        "Éxito",
-        "Tus intereses y perfil de IA se han guardado con éxito."
-      );
+      Alert.alert("Éxito", "Tus intereses y perfil de IA se han guardado con éxito.");
     } catch (e) {
       console.error("Error al guardar intereses:", e);
     }
+  };
+
+  // ============================
+  // ✅ NUEVO: Finalizar trabajito (UI ONLY)
+  // ============================
+  const openFinishModal = () => {
+    setFinishModalVisible(true);
+    setFinishTriedSubmit(false);
+  };
+
+  const closeFinishModal = () => {
+    setFinishModalVisible(false);
+    setFinishTriedSubmit(false);
+    setFinishPhotoUri(null);
+  };
+
+  const pickFinishPhoto = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert(
+        "Permiso requerido",
+        "Necesitamos acceso a tu galería para subir la foto del trabajito."
+      );
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 0.85,
+    });
+
+    if (!result.canceled) {
+      const uri = result.assets?.[0]?.uri;
+      if (uri) setFinishPhotoUri(uri);
+    }
+  };
+
+  const handleFinishJobUIOnly = () => {
+    setFinishTriedSubmit(true);
+    if (!finishPhotoUri) return;
+
+    // Cierra el modal de evidencia y abre el modal final (pago + calificación)
+    setFinishModalVisible(false);
+    setFinishSummaryVisible(true);
+  };
+
+  const closeFinishSummary = () => {
+    setFinishSummaryVisible(false);
+    setFinishTriedSubmit(false);
+    setFinishPhotoUri(null);
+    setServiceDetailVisible(false);
+
+    // UI only: simula que ya no hay servicio en curso
+    setActiveServiceJob(null);
+  };
+
+  const renderStars = (rating: number) => {
+    const full = Math.floor(rating);
+    const hasHalf = rating - full >= 0.5;
+    const total = 5;
+
+    return (
+      <View style={styles.starsRow}>
+        {Array.from({ length: total }).map((_, idx) => {
+          const iconName =
+            idx < full
+              ? "star"
+              : idx === full && hasHalf
+              ? "star-half"
+              : "star-outline";
+          return <Ionicons key={idx} name={iconName as any} size={16} color="#0A3251" />;
+        })}
+      </View>
+    );
   };
 
   const activeFiltersCount = filterMatchesProfile ? 1 : 0;
@@ -441,15 +496,10 @@ export default function JobsScreen() {
       {/* Barra superior: filtros */}
       <View style={styles.topBar}>
         <Text style={styles.topBarText}>
-          {loading
-            ? "Cargando..."
-            : `${filteredJobs.length} de ${jobs.length} empleos`}
+          {loading ? "Cargando..." : `${filteredJobs.length} de ${jobs.length} empleos`}
         </Text>
         <TouchableOpacity
-          style={[
-            styles.filterBtn,
-            activeFiltersCount > 0 && styles.filterBtnActive,
-          ]}
+          style={[styles.filterBtn, activeFiltersCount > 0 && styles.filterBtnActive]}
           onPress={() => setFiltersVisible(true)}
         >
           <Ionicons
@@ -475,10 +525,7 @@ export default function JobsScreen() {
           <Text style={styles.loadingText}>Cargando trabajos...</Text>
         </View>
       ) : (
-        <ScrollView
-          style={styles.list}
-          contentContainerStyle={{ paddingBottom: 80 }}
-        >
+        <ScrollView style={styles.list} contentContainerStyle={{ paddingBottom: 80 }}>
           {filteredJobs.length === 0 ? (
             <View style={styles.emptyState}>
               <Ionicons name="briefcase-outline" size={40} color="#C7D1DF" />
@@ -495,7 +542,6 @@ export default function JobsScreen() {
             </View>
           ) : (
             filteredJobs.map((job) => (
-              // 3. 📝 La Card de trabajo utiliza directamente las propiedades de 'Job'
               <TouchableOpacity
                 key={job.id}
                 style={styles.jobCard}
@@ -506,15 +552,11 @@ export default function JobsScreen() {
                   <View
                     style={[
                       styles.matchPill,
-                      job.matchesProfile
-                        ? styles.matchPillOn
-                        : styles.matchPillOff,
+                      job.matchesProfile ? styles.matchPillOn : styles.matchPillOff,
                     ]}
                   >
                     <Ionicons
-                      name={
-                        job.matchesProfile ? "checkmark-circle" : "alert-circle"
-                      }
+                      name={job.matchesProfile ? "checkmark-circle" : "alert-circle"}
                       size={14}
                       color={job.matchesProfile ? "#0A3251" : "#A1A9B5"}
                     />
@@ -525,7 +567,7 @@ export default function JobsScreen() {
                       ]}
                     >
                       {job.postedAt.includes("% Match")
-                        ? job.postedAt // Usa el porcentaje de match
+                        ? job.postedAt
                         : job.matchesProfile
                         ? "Ajusta a perfil"
                         : "Ver todo"}
@@ -548,16 +590,11 @@ export default function JobsScreen() {
 
                 <View style={styles.jobFooterRow}>
                   <Text style={styles.jobPostedAt}>
-                    {/* Si es match IA, el postedAt ya es el porcentaje, si no, usa el tiempo */}
                     {job.postedAt.includes("% Match") ? "" : job.postedAt}
                   </Text>
                   <View style={styles.jobActionRight}>
                     <Text style={styles.jobSeeMore}>Ver detalles</Text>
-                    <Ionicons
-                      name="chevron-forward"
-                      size={18}
-                      color="#0A3251"
-                    />
+                    <Ionicons name="chevron-forward" size={18} color="#0A3251" />
                   </View>
                 </View>
               </TouchableOpacity>
@@ -565,10 +602,6 @@ export default function JobsScreen() {
           )}
         </ScrollView>
       )}
-
-
-
-
 
       {/* BANNER: Servicio en curso (flotante) */}
       {activeServiceJob && (
@@ -581,9 +614,7 @@ export default function JobsScreen() {
             <View style={styles.activeServiceLeft}>
               <View style={styles.activeServiceBadge}>
                 <Ionicons name="flash-outline" size={16} color="#0A3251" />
-                <Text style={styles.activeServiceBadgeText}>
-                  Servicio en curso
-                </Text>
+                <Text style={styles.activeServiceBadgeText}>Servicio en curso</Text>
               </View>
               <Text style={styles.activeServiceTitle} numberOfLines={1}>
                 {activeServiceJob.title}
@@ -597,11 +628,7 @@ export default function JobsScreen() {
         </View>
       )}
 
-
-
-
-
-      {/* MODAL: Bienvenida (primera vez) - Se mantiene igual */}
+      {/* MODAL: Bienvenida */}
       <Modal
         visible={showWelcome}
         transparent
@@ -613,8 +640,8 @@ export default function JobsScreen() {
             <Ionicons name="hand-right-outline" size={40} color="#0A3251" />
             <Text style={styles.welcomeTitle}>Bienvenido a Trabajemos</Text>
             <Text style={styles.welcomeText}>
-              Aquí podrás encontrar trabajitos cerca de ti que se ajusten a tu
-              perfil e intereses.
+              Aquí podrás encontrar trabajitos cerca de ti que se ajusten a tu perfil e
+              intereses.
             </Text>
             <TouchableOpacity
               style={[styles.btn, styles.btnPrimary, { marginTop: 12 }]}
@@ -623,31 +650,26 @@ export default function JobsScreen() {
                 setShowInterestsModal(true);
               }}
             >
-              <Text style={[styles.btnText, styles.btnTextPrimary]}>
-                Empezar
-              </Text>
+              <Text style={[styles.btnText, styles.btnTextPrimary]}>Empezar</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      {/* MODAL: Intereses del trabajador (texto abierto) - Se mantiene igual */}
+      {/* MODAL: Intereses del trabajador */}
       <Modal
         visible={showInterestsModal}
         transparent
         animationType="slide"
         onRequestClose={() => setShowInterestsModal(false)}
       >
-        <Pressable
-          style={styles.backdrop}
-          onPress={() => setShowInterestsModal(false)}
-        />
+        <Pressable style={styles.backdrop} onPress={() => setShowInterestsModal(false)} />
         <View style={styles.interestsModalContainer}>
           <View style={styles.interestsCard}>
             <Text style={styles.interestsTitle}>Tus intereses</Text>
             <Text style={styles.interestsSubtitle}>
-              Cuéntanos en tus propias palabras en qué tipos de trabajos te
-              interesa participar. Más adelante procesaremos este texto con IA.
+              Cuéntanos en tus propias palabras en qué tipos de trabajos te interesa
+              participar. Más adelante procesaremos este texto con IA.
             </Text>
 
             <TextInput
@@ -664,25 +686,20 @@ export default function JobsScreen() {
               style={[styles.btn, styles.btnPrimary, { marginTop: 8 }]}
               onPress={handleInterestsSave}
             >
-              <Text style={[styles.btnText, styles.btnTextPrimary]}>
-                Guardar intereses
-              </Text>
+              <Text style={[styles.btnText, styles.btnTextPrimary]}>Guardar intereses</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      {/* MODAL: Filtros - Se mantiene igual */}
+      {/* MODAL: Filtros */}
       <Modal
         visible={filtersVisible}
         transparent
         animationType="slide"
         onRequestClose={() => setFiltersVisible(false)}
       >
-        <Pressable
-          style={styles.backdrop}
-          onPress={() => setFiltersVisible(false)}
-        />
+        <Pressable style={styles.backdrop} onPress={() => setFiltersVisible(false)} />
         <View style={styles.filtersModalContainer}>
           <View style={styles.filtersCard}>
             <View style={styles.filtersTitleRow}>
@@ -692,7 +709,6 @@ export default function JobsScreen() {
             <View style={styles.filterSection}>
               <Text style={styles.filterLabel}>Tu perfil profesional (IA)</Text>
 
-              {/* 💡 Nuevo bloque para mostrar el work_prof como referencia (interestsText) */}
               <View style={styles.profileReferenceBox}>
                 <Text style={styles.profileReferenceText}>
                   {interestsText
@@ -702,8 +718,8 @@ export default function JobsScreen() {
               </View>
 
               <Text style={styles.filterHint}>
-                Este es el texto que la Inteligencia Artificial utiliza para
-                encontrar coincidencias.
+                Este es el texto que la Inteligencia Artificial utiliza para encontrar
+                coincidencias.
               </Text>
             </View>
 
@@ -713,7 +729,7 @@ export default function JobsScreen() {
                 <Text style={styles.profileFilterText}>
                   Solo empleos recomendados por la IA
                 </Text>
-                {/* Switch de Match IA (tempFilterMatchesProfile) */}
+
                 <TouchableOpacity
                   style={[
                     styles.profileToggle,
@@ -730,18 +746,13 @@ export default function JobsScreen() {
                 </TouchableOpacity>
               </View>
               <Text style={styles.profileHint}>
-                Activar esto filtra la lista usando tu perfil de IA para mostrar
-                solo los trabajos con mayor porcentaje de coincidencia.
+                Activar esto filtra la lista usando tu perfil de IA para mostrar solo los
+                trabajos con mayor porcentaje de coincidencia.
               </Text>
             </View>
 
-            <TouchableOpacity
-              style={[styles.btn, styles.btnPrimary]}
-              onPress={applyFilters}
-            >
-              <Text style={[styles.btnText, styles.btnTextPrimary]}>
-                Aplicar filtros
-              </Text>
+            <TouchableOpacity style={[styles.btn, styles.btnPrimary]} onPress={applyFilters}>
+              <Text style={[styles.btnText, styles.btnTextPrimary]}>Aplicar filtros</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -754,10 +765,7 @@ export default function JobsScreen() {
         animationType="slide"
         onRequestClose={() => setJobDetailVisible(false)}
       >
-        <Pressable
-          style={styles.backdrop}
-          onPress={() => setJobDetailVisible(false)}
-        />
+        <Pressable style={styles.backdrop} onPress={() => setJobDetailVisible(false)} />
         <View style={styles.jobDetailContainer}>
           <View style={styles.jobDetailCard}>
             {selectedJob && (
@@ -765,16 +773,12 @@ export default function JobsScreen() {
                 <Text style={styles.jobDetailTitle}>{selectedJob.title}</Text>
                 <Text style={styles.jobDetailType}>{selectedJob.type}</Text>
 
-                {/* 4. ✅ Detalle: Muestra el porcentaje de match si aplica */}
-                {selectedJob.matchesProfile &&
-                  selectedJob.postedAt.includes("% Match") && (
-                    <View style={[styles.jobDetailRow, { marginTop: 4 }]}>
-                      <Text style={styles.jobDetailLabel}>Match:</Text>
-                      <Text style={styles.jobDetailValue}>
-                        {selectedJob.postedAt}
-                      </Text>
-                    </View>
-                  )}
+                {selectedJob.matchesProfile && selectedJob.postedAt.includes("% Match") && (
+                  <View style={[styles.jobDetailRow, { marginTop: 4 }]}>
+                    <Text style={styles.jobDetailLabel}>Match:</Text>
+                    <Text style={styles.jobDetailValue}>{selectedJob.postedAt}</Text>
+                  </View>
+                )}
 
                 <View style={styles.jobDetailRow}>
                   <Text style={styles.jobDetailLabel}>Pago:</Text>
@@ -783,32 +787,25 @@ export default function JobsScreen() {
 
                 <View style={styles.jobDetailRow}>
                   <Text style={styles.jobDetailLabel}>Ubicación:</Text>
-                  <Text style={styles.jobDetailValue}>
-                    {selectedJob.address}
-                  </Text>
+                  <Text style={styles.jobDetailValue}>{selectedJob.address}</Text>
                 </View>
 
-                {/* 5. Detalle: Muestra el tiempo de publicación (solo si NO es match IA) */}
                 {!selectedJob.postedAt.includes("% Match") && (
                   <View style={styles.jobDetailRow}>
                     <Text style={styles.jobDetailLabel}>Publicado:</Text>
-                    <Text style={styles.jobDetailValue}>
-                      {selectedJob.postedAt}
-                    </Text>
+                    <Text style={styles.jobDetailValue}>{selectedJob.postedAt}</Text>
                   </View>
                 )}
 
                 <Text style={styles.jobDetailSectionTitle}>Descripción</Text>
-                <Text style={styles.jobDetailDescription}>
-                  {selectedJob.description}
-                </Text>
+                <Text style={styles.jobDetailDescription}>{selectedJob.description}</Text>
 
                 {selectedJob.photos ? (
                   <Image
                     source={{
                       uri: Array.isArray(selectedJob.photos)
                         ? selectedJob.photos[0]
-                        : selectedJob.photos.split(",")[0], // Manejo de string con comas
+                        : selectedJob.photos.split(",")[0],
                     }}
                     style={styles.jobDetailImage}
                   />
@@ -818,9 +815,7 @@ export default function JobsScreen() {
                   style={[styles.btn, styles.btnPrimary, { marginTop: 12 }]}
                   onPress={handleChooseJob}
                 >
-                  <Text style={[styles.btnText, styles.btnTextPrimary]}>
-                    Elegir este trabajo
-                  </Text>
+                  <Text style={[styles.btnText, styles.btnTextPrimary]}>Elegir este trabajo</Text>
                 </TouchableOpacity>
               </>
             )}
@@ -828,17 +823,14 @@ export default function JobsScreen() {
         </View>
       </Modal>
 
-      {/* MINI MODAL: Servicio en curso (detalle desde el banner) - Se mantiene igual */}
+      {/* MINI MODAL: Servicio en curso (detalle desde el banner) */}
       <Modal
         visible={serviceDetailVisible && !!activeServiceJob}
         transparent
         animationType="slide"
         onRequestClose={() => setServiceDetailVisible(false)}
       >
-        <Pressable
-          style={styles.backdrop}
-          onPress={() => setServiceDetailVisible(false)}
-        />
+        <Pressable style={styles.backdrop} onPress={() => setServiceDetailVisible(false)} />
         <View style={styles.miniServiceModalContainer}>
           <View style={styles.miniServiceCard}>
             {activeServiceJob && (
@@ -846,13 +838,9 @@ export default function JobsScreen() {
                 <View style={styles.miniServiceHeaderRow}>
                   <View style={styles.miniServiceBadgeRow}>
                     <Ionicons name="flash-outline" size={18} color="#0A3251" />
-                    <Text style={styles.miniServiceStatusText}>
-                      Servicio en curso
-                    </Text>
+                    <Text style={styles.miniServiceStatusText}>Servicio en curso</Text>
                   </View>
-                  <Text style={styles.miniServiceTimeText}>
-                    {activeServiceJob.postedAt}
-                  </Text>
+                  <Text style={styles.miniServiceTimeText}>{activeServiceJob.postedAt}</Text>
                 </View>
 
                 <Text style={styles.miniServiceTitle} numberOfLines={2}>
@@ -861,9 +849,7 @@ export default function JobsScreen() {
 
                 <View style={styles.miniServiceRow}>
                   <Ionicons name="cash-outline" size={16} color="#6B7A8C" />
-                  <Text style={styles.miniServiceRowText}>
-                    {activeServiceJob.pay}
-                  </Text>
+                  <Text style={styles.miniServiceRowText}>{activeServiceJob.pay}</Text>
                 </View>
 
                 <View style={styles.miniServiceRow}>
@@ -877,13 +863,19 @@ export default function JobsScreen() {
                   {activeServiceJob.description}
                 </Text>
 
+                {/* ✅ NUEVO BOTÓN: Finalizar trabajito */}
+                <TouchableOpacity
+                  style={[styles.btn, styles.btnOutline, { marginTop: 10 }]}
+                  onPress={openFinishModal}
+                >
+                  <Text style={[styles.btnText, styles.btnTextOutline]}>Finalizar trabajito</Text>
+                </TouchableOpacity>
+
                 <TouchableOpacity
                   style={[styles.btn, styles.btnPrimary, { marginTop: 10 }]}
                   onPress={() => setServiceDetailVisible(false)}
                 >
-                  <Text style={[styles.btnText, styles.btnTextPrimary]}>
-                    Cerrar
-                  </Text>
+                  <Text style={[styles.btnText, styles.btnTextPrimary]}>Cerrar</Text>
                 </TouchableOpacity>
               </>
             )}
@@ -891,7 +883,7 @@ export default function JobsScreen() {
         </View>
       </Modal>
 
-      {/* MINI MODAL: Felicidades hubo match - Se mantiene igual */}
+      {/* MINI MODAL: Felicidades hubo match */}
       <Modal
         visible={matchModalVisible}
         transparent
@@ -911,9 +903,158 @@ export default function JobsScreen() {
               style={[styles.btn, styles.btnPrimary, { marginTop: 10 }]}
               onPress={() => setMatchModalVisible(false)}
             >
-              <Text style={[styles.btnText, styles.btnTextPrimary]}>
-                Entendido
+              <Text style={[styles.btnText, styles.btnTextPrimary]}>Entendido</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ✅ MODAL NUEVO #1: Finalizar trabajito (foto obligatoria) */}
+      <Modal
+        visible={finishModalVisible && !!activeServiceJob}
+        transparent
+        animationType="slide"
+        onRequestClose={closeFinishModal}
+      >
+        <Pressable style={styles.backdrop} onPress={closeFinishModal} />
+
+        <View style={styles.finishModalContainer}>
+          <View style={styles.finishCard}>
+            <View style={styles.finishHeaderRow}>
+              <View style={styles.finishBadgeRow}>
+                <Ionicons name="checkmark-circle-outline" size={18} color="#0A3251" />
+                <Text style={styles.finishBadgeText}>Entrega del servicio</Text>
+              </View>
+
+              <TouchableOpacity style={styles.iconBtn} onPress={closeFinishModal}>
+                <Ionicons name="close" size={22} color="#0A3251" />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.finishTitle}>Finalizar trabajito</Text>
+            <Text style={styles.finishSubtitle}>
+              Sube una foto <Text style={{ fontWeight: "800" }}>obligatoria</Text> del resultado
+              para que el cliente valide el cierre.
+            </Text>
+
+            <View style={styles.finishSection}>
+              <Text style={styles.finishLabel}>
+                Foto del resultado <Text style={{ color: "#E63946" }}>*</Text>
               </Text>
+              <Text style={styles.finishHint}>
+                Debe verse el trabajo terminado. Nada de “modo misterio”, pls 😅
+              </Text>
+
+              <TouchableOpacity style={styles.photoBox} onPress={pickFinishPhoto} activeOpacity={0.9}>
+                {finishPhotoUri ? (
+                  <>
+                    <Image source={{ uri: finishPhotoUri }} style={styles.photoPreview} />
+                    <View style={styles.photoOverlay}>
+                      <Ionicons name="camera-outline" size={18} color="#FFFFFF" />
+                      <Text style={styles.photoOverlayText}>Cambiar foto</Text>
+                    </View>
+                  </>
+                ) : (
+                  <View style={styles.photoEmpty}>
+                    <Ionicons name="camera-outline" size={22} color="#0A3251" />
+                    <Text style={styles.photoEmptyTitle}>Subir foto</Text>
+                    <Text style={styles.photoEmptyText}>Toca para seleccionar desde tu galería</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+
+              {finishTriedSubmit && !finishPhotoUri && (
+                <Text style={styles.finishError}>La foto es obligatoria para poder finalizar.</Text>
+              )}
+            </View>
+
+            <TouchableOpacity
+              style={[
+                styles.btn,
+                styles.btnPrimary,
+                !finishPhotoUri && styles.btnDisabled,
+                { marginTop: 10 },
+              ]}
+              onPress={handleFinishJobUIOnly}
+              disabled={!finishPhotoUri}
+            >
+              <Text
+                style={[
+                  styles.btnText,
+                  styles.btnTextPrimary,
+                  !finishPhotoUri && styles.btnTextDisabled,
+                ]}
+              >
+                Finalizar trabajito
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.btn, styles.btnOutline, { marginTop: 8 }]}
+              onPress={closeFinishModal}
+            >
+              <Text style={[styles.btnText, styles.btnTextOutline]}>Cancelar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ✅ MODAL NUEVO #2: Confirmación final (pago + calificación del cliente) */}
+      <Modal
+        visible={finishSummaryVisible && !!activeServiceJob}
+        transparent
+        animationType="fade"
+        onRequestClose={closeFinishSummary}
+      >
+        <View style={styles.overlayCenter}>
+          <View style={styles.summaryCard}>
+            <View style={styles.summaryIconCircle}>
+              <Ionicons name="shield-checkmark-outline" size={26} color="#0A3251" />
+            </View>
+
+            <Text style={styles.summaryTitle}>Servicio finalizado</Text>
+            <Text style={styles.summarySubtitle}>
+              El cliente confirmó el cierre. Tu pago ya quedó procesado.
+            </Text>
+
+            <View style={styles.summaryInfoBox}>
+              <View style={styles.summaryRow}>
+                <Ionicons name="cash-outline" size={16} color="#6B7A8C" />
+                <Text style={styles.summaryRowLabel}>Pago:</Text>
+                <Text style={styles.summaryRowValue}>{activeServiceJob?.pay}</Text>
+              </View>
+
+              <View style={styles.summaryDivider} />
+
+              <View style={styles.summaryRowTop}>
+                <Ionicons name="star-outline" size={16} color="#6B7A8C" />
+                <Text style={styles.summaryRowLabel}>Calificación:</Text>
+                <Text style={styles.summaryRowValue}>{clientRating.toFixed(1)}</Text>
+              </View>
+
+              {renderStars(clientRating)}
+
+              <Text style={styles.summaryReviewText} numberOfLines={3}>
+                “{clientReviewText}”
+              </Text>
+
+              {finishPhotoUri ? (
+                <View style={styles.summaryPhotoRow}>
+                  <Image source={{ uri: finishPhotoUri }} style={styles.summaryMiniPhoto} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.summaryMiniTitle}>Evidencia</Text>
+                    <Text style={styles.summaryMiniSub}>Foto entregada al cliente</Text>
+                  </View>
+                  <Ionicons name="checkmark-circle" size={18} color="#0A3251" />
+                </View>
+              ) : null}
+            </View>
+
+            <TouchableOpacity
+              style={[styles.btn, styles.btnPrimary, { marginTop: 10, width: "100%" }]}
+              onPress={closeFinishSummary}
+            >
+              <Text style={[styles.btnText, styles.btnTextPrimary]}>Listo</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -999,7 +1140,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
 
-  // Estilos de la Job Card - Se mantienen para respetar el formato
   jobCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 16,
@@ -1115,7 +1255,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
 
-  /* Overlay centrado genérico */
   overlayCenter: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.25)",
@@ -1124,7 +1263,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
   },
 
-  /* Welcome modal */
   welcomeCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 20,
@@ -1156,7 +1294,6 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.25)",
   },
 
-  /* Interests modal */
   interestsModalContainer: {
     flex: 1,
     justifyContent: "flex-end",
@@ -1197,7 +1334,6 @@ const styles = StyleSheet.create({
     color: "#0A3251",
   },
 
-  /* Filters modal */
   filtersModalContainer: {
     flex: 1,
     justifyContent: "flex-end",
@@ -1286,7 +1422,6 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 
-  /* Job detail modal - Se mantiene para respetar el formato */
   jobDetailContainer: {
     flex: 1,
     justifyContent: "flex-end",
@@ -1348,7 +1483,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#E1E8F0",
   },
 
-  /* Botones reutilizables */
   btn: {
     height: 44,
     borderRadius: 12,
@@ -1368,7 +1502,23 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 
-  /* MINI MODAL: Match */
+  btnOutline: {
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#0A3251",
+  },
+  btnTextOutline: {
+    color: "#0A3251",
+    fontWeight: "800",
+  },
+  btnDisabled: {
+    backgroundColor: "#C7D1DF",
+  },
+  btnTextDisabled: {
+    color: "#FFFFFF",
+    opacity: 0.85,
+  },
+
   matchCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 20,
@@ -1405,7 +1555,6 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 
-  /* BANNER: Servicio en curso */
   activeServiceContainer: {
     position: "absolute",
     left: 0,
@@ -1459,7 +1608,6 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
-  /* MINI MODAL: Detalle de servicio en curso */
   miniServiceModalContainer: {
     flex: 1,
     justifyContent: "flex-end",
@@ -1519,6 +1667,7 @@ const styles = StyleSheet.create({
     color: "#4A5A6C",
     marginTop: 10,
   },
+
   profileReferenceBox: {
     marginTop: 6,
     borderRadius: 8,
@@ -1532,4 +1681,235 @@ const styles = StyleSheet.create({
     color: "#4A5A6C",
     fontStyle: "italic",
   },
+
+  // ✅ Finalizar trabajito modal
+  finishModalContainer: {
+    flex: 1,
+    justifyContent: "flex-end",
+  },
+  finishCard: {
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 18,
+    shadowColor: "#000",
+    shadowOpacity: 0.16,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: -4 },
+    elevation: 12,
+  },
+  finishHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 6,
+  },
+  finishBadgeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  finishBadgeText: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#0A3251",
+  },
+  finishTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#0A3251",
+    marginTop: 2,
+  },
+  finishSubtitle: {
+    fontSize: 13,
+    color: "#6B7A8C",
+    marginTop: 4,
+  },
+  finishSection: {
+    marginTop: 14,
+    gap: 6,
+  },
+  finishLabel: {
+    fontSize: 13,
+    color: "#5A6B7C",
+    fontWeight: "700",
+  },
+  finishHint: {
+    fontSize: 11,
+    color: "#9AA4B2",
+  },
+  finishError: {
+    marginTop: 6,
+    fontSize: 12,
+    color: "#E63946",
+    fontWeight: "700",
+  },
+  photoBox: {
+    marginTop: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#C7D1DF",
+    backgroundColor: "#F8FAFC",
+    overflow: "hidden",
+    minHeight: 150,
+    justifyContent: "center",
+  },
+  photoEmpty: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 18,
+    paddingHorizontal: 14,
+    gap: 6,
+  },
+  photoEmptyTitle: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#0A3251",
+  },
+  photoEmptyText: {
+    fontSize: 11,
+    color: "#6B7A8C",
+    textAlign: "center",
+  },
+  photoPreview: {
+    width: "100%",
+    height: 190,
+    backgroundColor: "#E1E8F0",
+  },
+  photoOverlay: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: "rgba(10, 50, 81, 0.75)",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  photoOverlayText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+
+  // ✅ Modal final pago + calificación
+  summaryCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 18,
+    alignItems: "center",
+    width: "100%",
+    maxWidth: 380,
+    shadowColor: "#000",
+    shadowOpacity: 0.16,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 12,
+  },
+  summaryIconCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: "#E3EFFC",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 8,
+  },
+  summaryTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#0A3251",
+    textAlign: "center",
+  },
+  summarySubtitle: {
+    fontSize: 13,
+    color: "#6B7A8C",
+    textAlign: "center",
+    marginTop: 4,
+  },
+  summaryInfoBox: {
+    width: "100%",
+    marginTop: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#E6E9EE",
+    backgroundColor: "#F8FAFC",
+    padding: 12,
+    gap: 8,
+  },
+  summaryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  summaryRowTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 2,
+  },
+  summaryRowLabel: {
+    fontSize: 12,
+    color: "#6B7A8C",
+    fontWeight: "700",
+  },
+  summaryRowValue: {
+    fontSize: 12,
+    color: "#0A3251",
+    fontWeight: "800",
+    marginLeft: "auto",
+  },
+  summaryDivider: {
+    height: 1,
+    backgroundColor: "#E6E9EE",
+    marginVertical: 2,
+  },
+  starsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    marginTop: 2,
+    marginLeft: 22,
+  },
+  summaryReviewText: {
+    fontSize: 12,
+    color: "#4A5A6C",
+    fontStyle: "italic",
+    marginTop: 6,
+    marginLeft: 22,
+  },
+  summaryPhotoRow: {
+    marginTop: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E6E9EE",
+    padding: 10,
+  },
+  summaryMiniPhoto: {
+    width: 46,
+    height: 46,
+    borderRadius: 10,
+    backgroundColor: "#E1E8F0",
+  },
+  summaryMiniTitle: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#0A3251",
+  },
+  summaryMiniSub: {
+    fontSize: 11,
+    color: "#6B7A8C",
+    marginTop: 2,
+  },
 });
+
