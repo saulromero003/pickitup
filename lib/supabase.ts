@@ -7,6 +7,10 @@ import { createClient, processLock } from '@supabase/supabase-js'
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY
 
+// Export the raw values so other modules can perform REST uploads when needed
+export const SUPABASE_URL = supabaseUrl;
+export const SUPABASE_ANON_KEY = supabaseAnonKey;
+
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {

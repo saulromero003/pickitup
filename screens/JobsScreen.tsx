@@ -19,6 +19,11 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../types/navigation";
 import { supabase } from "../lib/supabase";
 import * as ImagePicker from "expo-image-picker";
+// Usamos la API legacy para `uploadAsync` porque la nueva API reemplaza uploadAsync
+// y la migración completa requiere más cambios; el legacy export mantiene compatibilidad.
+import { uploadAsync } from 'expo-file-system/legacy';
+import * as FileSystem from 'expo-file-system/legacy';
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../lib/supabase';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, "Jobs">;
 
@@ -323,14 +328,47 @@ export default function JobsScreen() {
 
     console.log(`Entrando a chamba para: ${personId}`);
 
-    const { error } = await supabase
-      .from("service")
-      .upsert(updateData)
-      .eq("id", personId);
+    try {
+      const serviceRequestId = Number(selectedJob?.id);
 
-    if (error) {
-      console.log("Error al actualizar información:", error);
-      Alert.alert("Error", "No se pudo guardar la información: " + error.message);
+      // Comprobar si ya existe una fila para este servicio (evita unique constraint violation)
+      const { data: existing, error: fetchErr } = await supabase
+        .from('service')
+        .select('id')
+        .eq('service_request_id', serviceRequestId)
+        .maybeSingle();
+
+      if (fetchErr) {
+        console.warn('Error comprobando servicio existente:', fetchErr);
+      }
+
+      if (existing && existing.id) {
+        // Actualizar la fila existente
+        const { error: updateErr } = await supabase
+          .from('service')
+          .update({ state: 'C', accepted_price: numericPrice, person_worker_id: personId })
+          .eq('id', existing.id);
+
+        if (updateErr) {
+          console.log('Error al actualizar servicio existente:', updateErr);
+          Alert.alert('Error', 'No se pudo aceptar el trabajo: ' + updateErr.message);
+          return;
+        }
+      } else {
+        // Insertar fila nueva
+        const { error: insertErr } = await supabase
+          .from('service')
+          .insert({ state: 'C', accepted_price: numericPrice, service_request_id: serviceRequestId, person_worker_id: personId });
+
+        if (insertErr) {
+          console.log('Error al insertar servicio:', insertErr);
+          Alert.alert('Error', 'No se pudo aceptar el trabajo: ' + insertErr.message);
+          return;
+        }
+      }
+    } catch (e) {
+      console.error('handleChooseJob error:', e);
+      Alert.alert('Error', 'Ocurrió un error al aceptar el trabajo.');
       return;
     }
 
@@ -437,14 +475,70 @@ export default function JobsScreen() {
     }
   };
 
-  const handleFinishJobUIOnly = () => {
+  // Trabajador: Función de Prueba (Colócala cerca de handleFinishJob)
+
+const handleFinishJob = async () => {
+    // 1. Verificar si hay trabajo activo (serviceRequestId)
+    if (!activeServiceJob?.id) {
+        Alert.alert('Error', 'No hay trabajo activo para finalizar.');
+        return;
+    }
+
+    const serviceRequestId = activeServiceJob.id; 
+    
     setFinishTriedSubmit(true);
     if (!finishPhotoUri) return;
 
-    // Cierra el modal de evidencia y abre el modal final (pago + calificación)
-    setFinishModalVisible(false);
-    setFinishSummaryVisible(true);
-  };
+    // Asumimos que publicUrl es la URL de la foto de evidencia
+    const publicUrl = finishPhotoUri; 
+    
+    console.log(`TRABAJADOR: Finalizando trabajo, serviceRequestId: ${serviceRequestId}`);
+
+    try {
+        // === PASO 1: ACTUALIZAR EL SERVICIO A 'F' ===
+        // Esto notifica al cliente (por Realtime) y usa el ID de solicitud.
+        const { error: serviceError } = await supabase
+            .from('service')
+            .update({ 
+                state: 'F',
+            }) 
+            .eq('service_request_id', serviceRequestId) 
+            .select(); 
+
+        if (serviceError) {
+            console.error('❌ Error al actualizar SERVICE a F:', serviceError);
+            Alert.alert('Error BD', `No se pudo marcar el servicio como Finalizado: ${serviceError.message}`);
+            return;
+        }
+
+        // === PASO 2: ACTUALIZAR EL TICKET (REGISTRAR EVIDENCIA) ===
+        // ✅ CAMBIAR DE UPSERT A UPDATE PARA EVITAR DUPLICIDAD
+        const { error: ticketError } = await supabase
+            .from('ticket')
+            .update({
+                // ✅ Usar el nombre de columna correcto de la tabla 'ticket'
+                success_photo: publicUrl, 
+                // payment_confirmed: false no es necesario en el update a menos que lo fuerces
+            })
+            .eq('service_request_id', serviceRequestId); // ⬅️ Filtra por el ID existente
+
+        if (ticketError) {
+            console.error('❌ Error al registrar TICKET (success_photo) con UPDATE:', ticketError);
+            Alert.alert('Advertencia', 'El servicio finalizó, pero la foto del ticket no se pudo actualizar.');
+        }
+
+        // === PASO 3: LIMPIEZA DE UI Y NOTIFICACIÓN ===
+        setFinishModalVisible(false);
+        setActiveServiceJob(null); 
+        
+        Alert.alert('¡Trabajo Finalizado!', 'El cliente ha sido notificado para pagar.');
+
+    } catch (err) {
+        console.error('Error general en handleFinishJob:', err);
+    }
+};
+
+
 
   const closeFinishSummary = () => {
     setFinishSummaryVisible(false);
@@ -975,7 +1069,7 @@ export default function JobsScreen() {
                 !finishPhotoUri && styles.btnDisabled,
                 { marginTop: 10 },
               ]}
-              onPress={handleFinishJobUIOnly}
+              onPress={handleFinishJob}
               disabled={!finishPhotoUri}
             >
               <Text

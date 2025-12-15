@@ -64,7 +64,7 @@ export default function HomeScreen() {
 
   // ✅ NUEVO: flujo “trabajador finalizó + evidencia”
   // En backend: tus compas deberían setear esto cuando cambie el servicio a finalizado.
-  const [serviceStage, setServiceStage] = useState<'C' | 'F'>('C'); // C=en curso, F=finalizado
+  const [serviceStage, setServiceStage] = useState<'C' | 'F' | 'P' | 'T'>('C'); // C=en curso, F=finalizado
   const [workerFinishPhotoUri, setWorkerFinishPhotoUri] = useState<string | null>(null);
 
   // ✅ NUEVO: modal final (calificar + pagar)
@@ -76,7 +76,209 @@ export default function HomeScreen() {
   const [rating, setRating] = useState<number>(0);
   const [ratingTried, setRatingTried] = useState(false);
   const [reviewText, setReviewText] = useState<string>('');
+  const [clientRating, setClientRating] = useState(0);  
+  const [clientReviewText, setClientReviewText] = useState(''); // Lo mantendremos vacío ya que no lo usas
+const [finishSummaryVisible, setFinishSummaryVisible] = useState(false);
 
+// HomeScreen.tsx (Trabajador)
+
+const testUpdateState = async (serviceId: number) => {
+    // serviceId debe ser el ID de la fila en la tabla 'service' (ej: 32)
+    console.log(`Intentando actualizar service ID: ${serviceId} a 'T' (Test)`);
+
+    try {
+        const { data, error } = await supabase
+            .from('service')
+            .update({ state: 'T' }) 
+            .eq('id', serviceId)    // Usamos el ID de la fila de servicio
+            .select();              
+
+        if (error) {
+            console.error('❌ Falló la prueba de actualización:', error);
+            Alert.alert('Error de Actualización', `Fallo de la BD: ${error.message}`);
+        } else if (data && data.length > 0 && data[0].state === 'T') {
+            console.log('✅ Prueba de actualización EXITOSA. Estado actual: T');
+            Alert.alert('Éxito', `El servicio ID ${serviceId} fue actualizado a 'T'.`);
+        } else {
+            console.warn('⚠️ Advertencia: Query OK, pero el estado no cambió a T. El ID podría ser incorrecto.');
+            Alert.alert('Advertencia', 'El ID es incorrecto o no corresponde a una fila activa.');
+        }
+    } catch (e) {
+        console.error('Error general en la prueba:', e);
+        Alert.alert('Error', 'Error desconocido en la prueba.');
+    }
+};
+
+const fetchServiceInCourse = async () => {
+    try {
+        // 1. Obtener la lista de trabajos creados por el cliente
+        const jobIds = myJobs?.map((job) => job.id) || [];
+        console.log(`DIAGNÓSTICO: Jobs creados (myJobs) IDs: ${jobIds.length}`);
+        
+        if (jobIds.length === 0) {
+            setServiceInCourseJob(null);
+            return;
+        }
+
+        // 2. Consultar la tabla 'service' por un único servicio activo ('C' o 'F')
+        //    Se usa .limit(1) en lugar de .maybeSingle() para evitar el error de "multiple rows returned".
+        const { data: serviceDataArray, error: serviceError } = await supabase
+            .from('service')
+            .select('id, service_request_id, state') 
+            .in('service_request_id', jobIds)
+            .in('state', ['C', 'F']) // Buscar solo estados En Curso o Finalizado
+            .order('id', { ascending: false }) // Tomar el más reciente
+            .limit(1); 
+
+        if (serviceError) {
+            console.warn('Error fetching service in course:', serviceError.message || serviceError);
+            setServiceInCourseJob(null);
+            return;
+        }
+
+        console.log(`DIAGNÓSTICO: Resultado de consulta de servicio activo: ${serviceDataArray ? serviceDataArray.length : 0}`);
+
+        if (serviceDataArray && serviceDataArray.length > 0) {
+            const serviceData = serviceDataArray[0];
+            
+            // 3. Buscar los detalles del trabajo original en la lista local (myJobs)
+            // 🛑 CORRECCIÓN CRÍTICA: Forzar la conversión a string para evitar fallos de ===
+            // (Si job.id es string y serviceData.service_request_id es int4, la igualdad falla)
+            const matchedJob = myJobs?.find(
+                (job) => job.id.toString() === serviceData.service_request_id.toString()
+            );
+
+            console.log(`DIAGNÓSTICO: ¿Se encontró matchedJob? ${!!matchedJob}`);
+
+
+            if (matchedJob) {
+                // 4. Establecer el estado del trabajo activo (Mostrar Banner)
+                console.log('DIAGNÓSTICO: ✅ Se encontró todo. Estableciendo serviceInCourseJob.');
+
+                setServiceInCourseJob({
+                    id: serviceData.id, 
+                    serviceRequestId: serviceData.service_request_id, 
+                    title: matchedJob.name,
+                    description: matchedJob.description,
+                    pay: matchedJob.pay,
+                    address: `${matchedJob.latitude.toFixed(4)}°, ${matchedJob.longitude.toFixed(4)}°`,
+                    photo: matchedJob.photos,
+                });
+
+                // Establecer la información del trabajador (si es necesario)
+                setWorkerInfo({
+                    name: 'Trabajador asignado',
+                    avatarUrl: null,
+                });
+
+                // 5. Establecer la fase del servicio y abrir modal (si corresponde)
+                setServiceStage(serviceData.state); 
+                
+                if (serviceData.state === 'F') {
+                    console.log('DIAGNÓSTICO: Estado "F" detectado. Abriendo modal de pago.');
+                    setCloseoutVisible(true);
+                }
+
+                // Limpiar otros estados por defecto (opcional)
+                setWorkerFinishPhotoUri(null);
+                setRating(0);
+                setReviewText('');
+                setRatingTried(false);
+                
+            } else {
+                 console.log('DIAGNÓSTICO: serviceData encontrado, pero no se encontró match en myJobs. serviceInCourseJob = null.');
+                 setServiceInCourseJob(null);
+            }
+        } else {
+            console.log('DIAGNÓSTICO: No se encontraron servicios en estado C o F. serviceInCourseJob = null.');
+            setServiceInCourseJob(null);
+        }
+    } catch (err) {
+        console.error('fetchServiceInCourse error', err);
+        setServiceInCourseJob(null); // Asegurar que el estado se limpie en caso de error
+    }
+};
+
+// En la Vista del Cliente: Función de Catch-up (se ejecuta al cargar la sesión)
+
+// En la función checkJobStatusOnLoad del Cliente:
+
+const checkJobStatusOnLoad = async (jobId: number | null) => {
+    if (!jobId) return;
+
+    try {
+        // ⚠️ Simplificar el SELECT para evitar errores de columnas inexistentes
+        const { data: serviceData } = await supabase
+            .from('service')
+            .select('state') // ✅ Solo necesitamos el estado
+            .eq('service_request_id', jobId) // ✅ Usando el serviceRequestId
+            .maybeSingle();
+
+        // Condición de apertura: si el estado es 'F'
+        if (serviceData?.state === 'F') {
+            console.log('CLIENTE: Catch-up detectó estado F. Abriendo modal de pago.');
+            
+            setServiceStage('F');
+            setCloseoutVisible(true); // ¡ABRIR EL MODAL!
+        }
+    } catch (e) {
+        console.error("Error al verificar estado en el catch-up:", e);
+    }
+};
+
+const closeFinishSummary = () => {
+        setFinishSummaryVisible(false);
+        // Opcional: limpiar estados del trabajo finalizado si es necesario
+        // setActiveServiceJob(null); 
+        // setServiceStage('C'); // Volver a "Consultando"
+    };
+
+
+    // En el useEffect del Cliente que escucha cambios en la BD:
+
+useEffect(() => {
+    // ⚠️ CRÍTICO: Usar el serviceRequestId correcto
+    if (!serviceInCourseJob?.serviceRequestId) return; 
+    
+    const serviceRequestId = serviceInCourseJob.serviceRequestId; 
+
+    const channel = supabase
+        .channel(`service_updates_${serviceRequestId}`)
+        .on(
+            'postgres_changes', 
+            { 
+                event: 'UPDATE', 
+                schema: 'public', 
+                table: 'service', 
+                // ⚠️ CRÍTICO: Filtrar por el ID de la solicitud, no por el ID de fila
+                filter: `service_request_id=eq.${serviceRequestId}` 
+            }, 
+            (payload) => {
+                try {
+                    // Simplificar el tipo de payload (solo necesitamos el estado)
+                    const newRow = payload.new as { state: string };
+                    
+                    if (newRow.state === 'F') { 
+                        console.log('CLIENTE: 🔔 Realtime detectó FINALIZACIÓN. Abriendo modal.');
+                        
+                        setServiceStage('F');
+                        setCloseoutVisible(true); // ¡ABRIR EL MODAL!
+                    }
+                    
+                } catch (e) {
+                    console.warn('Realtime handler error:', e);
+                }
+            }
+        )
+        .subscribe();
+
+    return () => {
+        supabase.removeChannel(channel);
+    };
+    
+// ⚠️ CRÍTICO: Usar serviceRequestId como dependencia
+// eslint-disable-next-line react-hooks/exhaustive-deps
+}, [serviceInCourseJob?.serviceRequestId]);
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setUser(data.session?.user ?? null);
@@ -112,6 +314,70 @@ export default function HomeScreen() {
       console.error('fetchJobMarkers error', err);
     }
   };
+
+// En la VISTA DEL CLIENTE, cerca de donde cargas los trabajos o manejas la sesión.
+
+const checkCompletedJobState = async () => {
+    // 1. Identificar el trabajo que está en curso (si lo hay)
+    const activeJobId = serviceInCourseJob?.service_request_id; // O como obtengas el ID del servicio activo
+    if (!activeJobId) return;
+
+    // 2. Consultar la tabla 'service' directamente
+    const { data: serviceData, error } = await supabase
+        .from('service')
+        .select('state, finish_photo')
+        .eq('service_request_id', activeJobId)
+        .maybeSingle();
+
+    if (error) {
+        console.error("Error al verificar estado:", error);
+        return;
+    }
+
+    // 3. Si el estado ya es 'F', actualizar los estados locales del Cliente
+    if (serviceData?.state === 'F' && serviceData?.finish_photo) {
+        // Esto imita la acción del Realtime
+        setServiceStage('F');
+        setWorkerFinishPhotoUri(serviceData.finish_photo);
+        
+        // El 'useEffect' de apertura de modal se disparará con estos estados
+    }
+};
+
+useEffect(() => {
+    if (user?.id && personId) { // Asegúrate de tener el ID del cliente (personId)
+        fetchServiceInCourse();
+    }
+}, [user?.id, personId]); // Depende del ID de autenticación y el ID de persona
+
+// En la Vista del Cliente (donde se encuentran tus useStates y useEffects)
+
+// Función para verificar el estado finalizado al iniciar o recargar datos
+// En la Vista del Cliente/Dashboard Principal
+
+
+// useEffect que llama a la función de Catch-up cuando se carga el trabajo en curso
+useEffect(() => {
+    // Si el trabajo activo (que creaste) se carga, verifica su estado actual.
+    // ✅ USAMOS EL serviceRequestId del objeto de estado para la consulta
+    if (serviceInCourseJob?.serviceRequestId) { 
+        checkJobStatusOnLoad(serviceInCourseJob.serviceRequestId);
+    }
+// Agrega serviceInCourseJob?.serviceRequestId como dependencia
+// eslint-disable-next-line react-hooks/exhaustive-deps 
+}, [serviceInCourseJob?.serviceRequestId]);
+
+// ...
+
+// Asegúrate de llamar a esta función cuando el trabajo en curso se carga o cambia.
+useEffect(() => {
+    // Si tienes un trabajo en curso cargado, verifica su estado actual
+    if (serviceInCourseJob?.id) {
+        checkJobStatusOnLoad(serviceInCourseJob.id);
+    }
+// Agrega serviceInCourseJob.id como dependencia para que se dispare cuando la sesión cambie y se cargue el trabajo activo
+// eslint-disable-next-line react-hooks/exhaustive-deps 
+}, [serviceInCourseJob?.id]);
 
   const fetchMyJobs = async () => {
     try {
@@ -153,54 +419,6 @@ export default function HomeScreen() {
     }
   };
 
-  const fetchServiceInCourse = async () => {
-    try {
-      const jobIds = myJobs?.map((job) => job.id) || [];
-      if (jobIds.length === 0) return;
-
-      const { data: serviceData, error: serviceError } = await supabase
-        .from('service')
-        .select('id, service_request_id')
-        .in('service_request_id', jobIds)
-        .maybeSingle();
-
-      if (serviceError) {
-        console.warn('Error fetching service in course:', serviceError.message || serviceError);
-        return;
-      }
-
-      if (serviceData) {
-        const matchedJob = myJobs?.find((job) => job.id === serviceData.service_request_id);
-
-        if (matchedJob) {
-          setServiceInCourseJob({
-            id: serviceData.id,
-            title: matchedJob.name,
-            description: matchedJob.description,
-            pay: matchedJob.pay,
-            address: `${matchedJob.latitude.toFixed(4)}°, ${matchedJob.longitude.toFixed(4)}°`,
-            photo: matchedJob.photos,
-          });
-
-          // Placeholder de worker (backend lo setea luego)
-          setWorkerInfo({
-            name: 'Trabajador asignado',
-            avatarUrl: null,
-          });
-
-          // Default UI: en curso
-          setServiceStage('C');
-          setWorkerFinishPhotoUri(null);
-          setRating(0);
-          setReviewText('');
-          setRatingTried(false);
-        }
-      }
-    } catch (err) {
-      console.error('fetchServiceInCourse error', err);
-    }
-  };
-
   useEffect(() => {
     fetchJobMarkers();
   }, []);
@@ -218,6 +436,65 @@ export default function HomeScreen() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [myJobs]);
+
+// En la Vista del Cliente (donde se encuentran tus useStates y useEffects)
+// ...
+
+// En el Componente de la Vista del Cliente (Reemplaza el useEffect anterior)
+
+useEffect(() => {
+    if (!serviceInCourseJob?.id) return; 
+    
+    const serviceRequestId = serviceInCourseJob.id; 
+
+    const channel = supabase
+        .channel(`service_updates_${serviceRequestId}`)
+        .on(
+            'postgres_changes', 
+            { 
+                event: 'UPDATE', 
+                schema: 'public', 
+                table: 'service', 
+                filter: `service_request_id=eq.${serviceRequestId}` 
+            }, 
+            (payload) => {
+                try {
+                    const newRow = payload.new as { state: string, finish_photo: string | null };
+                    
+                    // --- TRABAJADOR FINALIZA (Estado 'F'): Notificación Instantánea ---
+                    if (newRow.state === 'F' && newRow.finish_photo) {
+                        console.log('CLIENTE: 🔔 Realtime detectó FINALIZACIÓN. Abriendo modal.');
+                        
+                        // 1. Establecer estados
+                        setServiceStage('F');
+                        setWorkerFinishPhotoUri(newRow.finish_photo);
+                        
+                        // 2. ✅ ABRIR EL MODAL INMEDIATAMENTE
+                        setCloseoutVisible(true); 
+                    }
+                    
+                } catch (e) {
+                    console.warn('Realtime handler error:', e);
+                }
+            }
+        )
+        .subscribe();
+
+    return () => {
+        supabase.removeChannel(channel);
+    };
+    
+// Se ejecuta cuando el ID del trabajo en curso cambia.
+// eslint-disable-next-line react-hooks/exhaustive-deps
+}, [serviceInCourseJob?.id]);
+
+// ...
+// ----------------------------------------------------------------------------------
+// ✅ ELIMINAR EL USEEFFECT ANTERIOR CON LA LÓGICA DE 'myJobs' y ESTADO 'P'
+// ----------------------------------------------------------------------------------
+// El useEffect que comienza con: "useEffect(() => { if (!myJobs || myJobs.length === 0) return;" 
+// DEBE ser eliminado o reemplazado por la lógica de arriba, ya que mezclaba los roles
+// (Cliente reaccionando al pago 'P', que es una acción propia).
 
   const displayName = useMemo(() => {
     return (
@@ -238,6 +515,179 @@ export default function HomeScreen() {
       console.log('signOut error:', e?.message);
     }
   };
+
+// Lado del Trabajador
+// Asegúrate de importar 'supabase' y de que 'expo-file-system' y 'fetch' estén disponibles.
+
+const uploadPhotoToSupabase = async (fileUri: string, path: string): Promise<string | null> => {
+    const BUCKET_NAME = 'service-photos'; 
+    console.log(`DIAGNÓSTICO STORAGE: Intentando subir URI: ${fileUri} a ruta: ${path}`);
+    
+    try {
+        // 1. Convertir la URI local a un ArrayBuffer o Blob
+        //    (fetch(uri).then(res => res.blob()) es la forma estándar, pero a veces falla con ciertas URIs locales)
+        
+        const response = await fetch(fileUri);
+        
+        if (!response.ok) {
+            console.error(`Error de FETCH: No se pudo obtener el archivo de la URI local. Estado: ${response.status}`);
+            return null;
+        }
+
+        const blob = await response.blob();
+        
+        // 2. Subir el Blob a Supabase Storage
+        const { error: uploadError } = await supabase.storage
+            .from(BUCKET_NAME)
+            .upload(path, blob, {
+                cacheControl: '3600',
+                upsert: true,
+            });
+
+        if (uploadError) {
+            console.error('Error al subir la foto a Storage (uploadError):', uploadError);
+            return null;
+        }
+
+        // 3. Obtener la URL pública del archivo
+        const { data } = supabase.storage
+            .from(BUCKET_NAME)
+            .getPublicUrl(path);
+
+        if (data?.publicUrl) {
+            console.log(`DIAGNÓSTICO STORAGE: ✅ Subida y URL exitosa: ${data.publicUrl}`);
+            return data.publicUrl;
+        }
+
+        console.error('Error al obtener la URL pública de la foto (getPublicUrl falló).');
+        return null;
+
+    } catch (e) {
+        console.error('Error general en uploadPhotoToSupabase (Catch):', e);
+        return null;
+    }
+};
+
+
+
+const handleWorkerFinishJob = async (currentServiceRequestId: number, photoLocalUri: string) => {
+    
+    // Verificación de parámetros críticos
+    if (!photoLocalUri || !currentServiceRequestId) {
+         console.error("Faltan parámetros críticos (ID de servicio o URI de la foto local).");
+         Alert.alert("Error", "Faltan datos para finalizar el trabajo.");
+         return;
+    }
+
+    // --- 1. Subir la foto al Storage y obtener la URL pública ---
+    // Creamos un path único para el Storage
+    const path = `services/${currentServiceRequestId}/finish_${new Date().getTime()}.jpg`;
+    
+    // Llamada a la función de subida que devuelve la URL pública
+    const photoPublicUrl = await uploadPhotoToSupabase(photoLocalUri, path); 
+
+    if (!photoPublicUrl) {
+        Alert.alert("Error de Subida", "No se pudo subir la foto de finalización. Inténtalo de nuevo.");
+        return;
+    }
+    
+    console.log(`TRABAJADOR: Foto subida exitosamente. URL: ${photoPublicUrl}`);
+
+    try {
+        // === PASO 2: ACTUALIZAR/INSERTAR EL TICKET CON LA EVIDENCIA ===
+        // Usamos upsert para asegurar que la fila exista o se cree si el trabajador la inserta primero.
+        const { error: ticketError } = await supabase
+            .from('ticket')
+            .upsert({ 
+                service_request_id: currentServiceRequestId,
+                success_photo: photoPublicUrl, // ✅ GUARDA LA URL AQUÍ
+                payment_confirmed: false       // El cliente aún no ha pagado
+            }, { 
+                onConflict: 'service_request_id' 
+            })
+            .select(); // Forzamos el select para mejor manejo de errores.
+
+        if (ticketError) {
+             console.error('ERROR TRABAJADOR: No se pudo guardar la URL de la foto en TICKET.', ticketError);
+             Alert.alert('Error', 'La foto se subió, pero no se pudo finalizar el servicio. Contacta soporte.');
+             return;
+        }
+
+        // === PASO 3: ACTUALIZAR EL SERVICIO A 'F' (Finalizado/Esperando Pago) ===
+        // Esto dispara el 'catch-up' en el lado del cliente.
+        const { error: serviceError } = await supabase
+            .from('service')
+            .update({ state: 'F' })
+            .eq('service_request_id', currentServiceRequestId)
+            .select();
+            
+        if (serviceError) {
+             console.error('ERROR TRABAJADOR: No se pudo cambiar el estado a F.', serviceError);
+             Alert.alert('Error', 'Fallo en la BD al cambiar el estado.');
+             return;
+        }
+
+        Alert.alert("¡Trabajo Finalizado!", "El cliente ha sido notificado para el pago.");
+        // Aquí deberías añadir la lógica para limpiar la UI del trabajador (ej: setWorkerJob(null))
+
+    } catch (e) {
+        console.error("Error general en la finalización del trabajador:", e);
+        Alert.alert("Error", "Ocurrió un error inesperado al finalizar el proceso.");
+    }
+};
+  // En la Vista del Cliente (donde están tus useStates y useEffects)
+
+const checkTicketStatusOnLoad = async (serviceRequestId: number | null) => {
+    if (!serviceRequestId) {
+        console.log('CLIENTE: No hay Service Request ID para verificar ticket.');
+        return;
+    }
+
+    try {
+        const { data: ticketData, error } = await supabase
+            .from('ticket')
+            .select('success_photo, payment_confirmed')
+            .eq('service_request_id', serviceRequestId)
+            .maybeSingle();
+
+        if (error) {
+            console.error('CLIENTE: Error consultando ticket:', error);
+            return;
+        }
+
+        // ⭐ CORRECCIÓN 1: Asegurar que la URL se guarde si existe, sea cual sea el estado de pago.
+        if (ticketData?.success_photo) {
+            console.log(`CLIENTE: Foto de evidencia encontrada: ${ticketData.success_photo}`);
+            setWorkerFinishPhotoUri(ticketData.success_photo); // ✅ Guardar la URL de la foto aquí
+        }
+
+        // ⭐ CORRECCIÓN 2: Abrir el modal solo si el pago está pendiente y la foto existe.
+        if (ticketData?.success_photo && ticketData.payment_confirmed === false) {
+            
+            console.log('CLIENTE: Catch-up detectó ticket pendiente de pago. Abriendo modal.');
+            
+            setServiceStage('T'); // Estado Transitorio
+            // setWorkerFinishPhotoUri(ticketData.success_photo); // Esto ya se hizo arriba
+            
+            setCloseoutVisible(true);
+            
+        } else {
+            console.log('CLIENTE: No hay ticket pendiente de pago o ya fue completado.');
+        }
+
+    } catch (e) {
+        console.error("CLIENTE: Error general en el Catch-up de ticket:", e);
+    }
+};
+
+// En la Vista del Cliente (sustituye tu useEffect anterior para el catch-up)
+useEffect(() => {
+    // Si el objeto del trabajo en curso está disponible
+    if (serviceInCourseJob?.id) {
+        checkTicketStatusOnLoad(serviceInCourseJob.id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [serviceInCourseJob?.id]); // Se ejecuta al cargar o cambiar el job ID
 
   // Traer foto de perfil desde tabla person.profile_pic
   useEffect(() => {
@@ -282,6 +732,13 @@ export default function HomeScreen() {
     }
   }, [helpSearchingVisible]);
 
+useEffect(() => {
+    if (myJobs && myJobs.length > 0) {
+        fetchServiceInCourse(); // ✅ Aquí está la llamada
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [myJobs]);
+
   // Auto cierre del modal de match a los 7s
   useEffect(() => {
     if (helpMatchVisible) {
@@ -305,17 +762,27 @@ export default function HomeScreen() {
 
   // ✅ Trigger: cuando “el trabajador finaliza + sube foto”
   // (Tus compas lo conectan a realtime / polling / query del servicio)
-  useEffect(() => {
+  // ✅ Trigger: cuando “el trabajador finaliza + sube foto”
+// En la Vista del Cliente (donde están definidos closeoutVisible, setCloseoutVisible, serviceStage, etc.)
+
+useEffect(() => {
     if (!serviceInCourseJob) return;
 
-    const shouldOpenCloseout = serviceStage === 'F' && !!workerFinishPhotoUri;
+    // Condición: El estado local indica que hay un Ticket Pendiente de Pago ('T') 
+    // Y la URL de la foto del trabajador ya fue cargada.
+    const shouldOpenCloseout = serviceStage === 'T' && !!workerFinishPhotoUri; 
 
     if (shouldOpenCloseout) {
-      closeAllModals();
-      setCloseoutVisible(true);
+        // Opcional: Asegurarse de que no haya otros modales abiertos
+        // closeAllModals(); 
+        
+        // ESTA ES LA ACCIÓN CLAVE: Abrir el modal de calificación y pago
+        setCloseoutVisible(true); 
     }
+    
+    // Las dependencias deben ser los estados que cambian al detectar el ticket
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serviceStage, workerFinishPhotoUri, serviceInCourseJob?.id]);
+}, [serviceStage, workerFinishPhotoUri, serviceInCourseJob?.id]);
 
   /* ===== HELP! handlers ===== */
 
@@ -506,6 +973,69 @@ export default function HomeScreen() {
     setServiceDetailVisible(true);
   };
 
+const handleProcessPayment = async () => {
+    // 1. Obtener el ID del servicio y la URL de la foto del estado
+    const serviceRequestId = serviceInCourseJob?.serviceRequestId;
+    // ✅ CRÍTICO: Acceder a la URL de la foto guardada por checkTicketStatusOnLoad
+    const photoUrlToSave = workerFinishPhotoUri; 
+    
+    if (!serviceRequestId) return;
+    
+    // Asumiendo que 'rating' y 'reviewText' son estados accesibles aquí.
+    if (rating <= 0) { 
+        Alert.alert('Calificación Requerida', 'Por favor, califica el servicio antes de continuar.'); 
+        return; 
+    } 
+
+    console.log(`PAGO: Iniciando proceso para service ID: ${serviceRequestId}`);
+    console.log(`DIAGNÓSTICO PHOTO: URL de la foto del trabajador: ${photoUrlToSave}`); // VERIFICAR ESTE LOG
+
+    try {
+        // === PASO 1: ACTUALIZAR/INSERTAR TICKET (Guardar Calificación, Reseña, y FOTO) ===
+        const { error: ticketError } = await supabase
+            .from('ticket')
+            .upsert({ 
+                service_request_id: serviceRequestId,
+                rate: rating, 
+                review_text: reviewText, 
+                success_photo: photoUrlToSave, // ✅ CORRECCIÓN: Usamos la URL del estado
+                payment_confirmed: true 
+            }, {
+                onConflict: 'service_request_id' 
+            })
+            .select(); 
+
+        if (ticketError) {
+            console.error('❌ Error al actualizar TICKET con reseña:', ticketError);
+            Alert.alert('Error', 'El pago fue exitoso, pero no se pudo guardar tu reseña o foto.');
+        }
+
+
+        // === PASO 2: ACTUALIZAR SERVICIO A 'P' (Pagado) ===
+        // Esto funciona porque ya corregiste la restricción CHECK.
+        const { data, error: serviceError } = await supabase
+            .from('service')
+            .update({ state: 'P' })
+            .eq('service_request_id', serviceRequestId)
+            .select(); 
+
+        if (serviceError) {
+            console.error('❌ Error al actualizar SERVICE a P:', serviceError);
+            Alert.alert('Error', 'Fallo al finalizar el servicio en la BD.');
+            return;
+        }
+        
+        // ... (Lógica de limpieza de estados y UI si es exitosa) ...
+        setServiceStage('P'); 
+        setCloseoutVisible(false); 
+        setServiceInCourseJob(null); 
+        Alert.alert('¡Transacción Exitosa!', 'Tu pago, reseña y foto han sido guardados.');
+
+    } catch (e) {
+        console.error('Error general:', e);
+    }
+};
+
   const renderRatingStars = (value: number) => {
     return (
       <View style={styles.ratingStarsRow}>
@@ -532,24 +1062,57 @@ export default function HomeScreen() {
     );
   };
 
-  const handlePayUIOnly = () => {
+  const handlePayUIOnly = async () => {
     setRatingTried(true);
     if (rating <= 0) return;
 
-    // Simular pago + liberar contrato
+    // 1. Obtener la ID del servicio
+    const serviceRequestId = serviceInCourseJob?.id;
+    if (!serviceRequestId) return;
+
+    // Simulación de pago
     Alert.alert('Pago simulado', 'Se pagó con la tarjeta predeterminada ✅');
+    
+    try {
+        // 2. ACTUALIZAR/INSERTAR EL TICKET con la Calificación y Pago
+        const { error: ticketError } = await supabase
+            .from('ticket')
+            .upsert({ 
+                service_request_id: serviceRequestId,
+                rate: rating,           // <-- Sube la calificación (rate)
+                
+                payment_confirmed: true, // <-- Confirma el pago
+            }, { 
+                onConflict: 'service_request_id' 
+            });
 
-    setCloseoutVisible(false);
-    closeAllModals();
+        if (ticketError) {
+            console.error('Error al actualizar ticket:', ticketError);
+            Alert.alert('Error', 'No se pudo registrar la calificación y el pago.');
+            return;
+        }
+        
+        // 3. ACTUALIZAR EL ESTADO DEL SERVICIO a 'P' (Pagado/Completado)
+        // Esto sirve como el evento que el trabajador detectará.
+        const { error: serviceError } = await supabase
+            .from('service')
+            .update({ state: 'P' }) // P = Pagado/Completado (lo que desbloquea al trabajador)
+            .eq('service_request_id', serviceRequestId);
 
-    // limpiar “contrato”
-    setServiceInCourseJob(null);
-    setServiceStage('C');
-    setWorkerFinishPhotoUri(null);
-    setRating(0);
-    setReviewText('');
-    setRatingTried(false);
-  };
+        if (serviceError) {
+             console.error('Error al actualizar servicio a P:', serviceError);
+        }
+        
+        // 4. Lógica de UI del Cliente (Limpiar estados)
+        setCloseoutVisible(false);
+        closeAllModals();
+        // ... limpiar otros estados de la UI del cliente si es necesario
+        
+    } catch (e) {
+        console.error('Error general en el pago:', e);
+        Alert.alert('Error', 'Ocurrió un error inesperado al finalizar el proceso.');
+    }
+};
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -633,8 +1196,9 @@ export default function HomeScreen() {
         </View>
       </View>
 
+
       {/* BANNER: Servicio en curso (creador) */}
-      {serviceInCourseJob && (
+      {serviceInCourseJob && serviceStage !== 'P' &&(
         <View style={styles.ownerServiceContainer}>
           <TouchableOpacity
             style={[
@@ -1090,7 +1654,7 @@ export default function HomeScreen() {
 
             <TouchableOpacity
               style={[styles.btn, styles.btnPrimary, { width: '100%', marginTop: 10 }]}
-              onPress={handlePayUIOnly}
+              onPress={handleProcessPayment}
             >
               <Ionicons name="card-outline" size={18} color="#fff" />
               <Text style={[styles.btnText, styles.btnTextPrimary]}>
